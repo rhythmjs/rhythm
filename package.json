@@ -1,0 +1,19 @@
+{
+  "name": "rhythmjs",
+  "version": "0.0.1",
+  "description": "A minimal, type-safe onion-middleware and provider composition kernel.",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "typescript": "^7.0.2"
+  }
+}
