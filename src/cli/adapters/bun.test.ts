@@ -1,7 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { Rhythm } from "../../core/rhythm";
 import type { RhythmCliContext } from "./context";
-import { toCliHandler } from "./bun";
+import { createPrompt, toCliHandler } from "./bun";
 
 function withStdinTTY<T>(isTTY: boolean, fn: () => T): T {
   const original = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
@@ -73,5 +73,18 @@ describe("toCliHandler()", () => {
     await withStdinTTY(false, () => toCliHandler(app)([]));
     expect(seenStdin).not.toBeNull();
     expect(seenStdin).toBeInstanceOf(ReadableStream);
+  });
+});
+
+describe("createPrompt()", () => {
+  test("wires a readline-backed RhythmPromptIO and returns the full prompt surface", () => {
+    const { prompt, close } = createPrompt();
+
+    expect(typeof prompt.text).toBe("function");
+    expect(typeof prompt.confirm).toBe("function");
+    expect(typeof prompt.select).toBe("function");
+    expect(typeof prompt.multiSelect).toBe("function");
+
+    close();
   });
 });

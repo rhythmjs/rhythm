@@ -14,6 +14,10 @@ export type DeepReadonly<T> = T extends (...args: any[]) => any
             ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
             : T;
 
+export type OmitHashKeys<T> = {
+  [K in keyof T as K extends `#${string}` ? never : K]: T[K];
+};
+
 export type NextFn<TContext extends object> = {
   (): Promise<DeepReadonly<TContext>>;
   <TExtra extends object>(extra: TExtra): Promise<DeepReadonly<TContext & TExtra>>;
@@ -96,9 +100,9 @@ export class Rhythm<
   provide<TValue extends object>(
     factory: (deps: DeepReadonly<TProviders>) => TValue | Promise<TValue>,
     dispose?: (value: TValue) => void | Promise<void>,
-  ): Rhythm<TInput, TContext & TValue, TProviders & TValue> {
+  ): Rhythm<TInput, TContext & OmitHashKeys<TValue>, TProviders & OmitHashKeys<TValue>> {
     this.#providers.push({ factory, dispose });
-    return this as unknown as Rhythm<TInput, TContext & TValue, TProviders & TValue>;
+    return this as unknown as Rhythm<TInput, TContext & OmitHashKeys<TValue>, TProviders & OmitHashKeys<TValue>>;
   }
 
   register<TRegInput extends object, TRegContext extends object, TExported extends object = {}>(
@@ -146,7 +150,9 @@ export class Rhythm<
     const resolved: Record<string, unknown> = {};
     for (const entry of this.#providers) {
       entry.resolved = await entry.factory(resolved);
-      Object.assign(resolved, entry.resolved as object);
+      for (const [key, value] of Object.entries(entry.resolved as object)) {
+        if (!key.startsWith("#")) resolved[key] = value;
+      }
     }
     this.#providedCache = resolved;
   }

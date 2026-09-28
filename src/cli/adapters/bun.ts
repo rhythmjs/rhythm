@@ -1,5 +1,7 @@
+import * as readline from "node:readline";
 import type { Rhythm } from "../../core/rhythm";
 import { parseArgv } from "../argv";
+import { createPrompt as createPromptWithIO, type RhythmPrompt, type RhythmPromptIO } from "../prompt";
 import { RhythmCliResponse, type RhythmCliContext } from "./context";
 
 export function toCliHandler<TContext extends RhythmCliContext, TProviders extends object = {}>(
@@ -17,4 +19,22 @@ export function toCliHandler<TContext extends RhythmCliContext, TProviders exten
 
     return ctx.response.exitCode;
   };
+}
+
+function defaultPromptIO(
+  input: NodeJS.ReadableStream = process.stdin,
+  output: NodeJS.WritableStream = process.stdout,
+): RhythmPromptIO {
+  const rl = readline.createInterface({ input, output });
+  return {
+    ask: (query) => new Promise((resolve) => rl.question(query, resolve)),
+    write: (text) => {
+      output.write(text);
+    },
+    close: () => rl.close(),
+  };
+}
+
+export function createPrompt(): { prompt: RhythmPrompt; close: () => void } {
+  return createPromptWithIO(defaultPromptIO());
 }

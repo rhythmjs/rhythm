@@ -217,6 +217,38 @@ describe("provide()", () => {
     expect(result.ready).toBe(true);
     expect(attempts).toBe(2);
   });
+
+  test("keys prefixed with # are stripped from context but still passed in full to dispose", async () => {
+    let disposedWith: unknown;
+    const app = new Rhythm<{}>()
+      .provide(
+        () => ({ prompt: { ask: () => "hi" }, "#close": () => {} }),
+        (value) => {
+          disposedWith = value;
+        },
+      )
+      .use((ctx) => {
+        expect((ctx as any)["#close"]).toBeUndefined();
+        expect(ctx.prompt.ask()).toBe("hi");
+      });
+
+    await app.run({});
+    await app.teardown();
+
+    expect(disposedWith).toHaveProperty("#close");
+    expect(disposedWith).toHaveProperty("prompt");
+  });
+
+  test("a plain key (no # prefix) is unaffected and reaches context as before", async () => {
+    const app = new Rhythm<{}>()
+      .provide(() => ({ value: 1, extra: "x" }))
+      .use((ctx) => {
+        expect(ctx.value).toBe(1);
+        expect(ctx.extra).toBe("x");
+      });
+
+    await app.run({});
+  });
 });
 
 describe("setup()/teardown()", () => {

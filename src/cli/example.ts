@@ -1,7 +1,6 @@
 import { Rhythm, type Middleware } from "../core/rhythm";
-import { toCliHandler } from "./adapters/bun";
+import { createPrompt, toCliHandler } from "./adapters/bun";
 import type { RhythmCliContext } from "./adapters/context";
-import { createPrompt } from "./prompt";
 import { RhythmCli } from "./rhythm-cli";
 
 const remotes: Record<string, string> = {};
@@ -16,16 +15,13 @@ const remoteCli = new RhythmCli({ name: "remote", prefix: "remote" })
     ctx.response.print(lines.length ? lines.join("\n") : "(no remotes)");
   });
 
-let closePrompt: () => void;
-
 const rootCli = new RhythmCli({ name: "example" })
   .provide(
     () => {
       const created = createPrompt();
-      closePrompt = created.close;
-      return { prompt: created.prompt };
+      return { prompt: created.prompt, "#close": created.close };
     },
-    () => closePrompt(),
+    (value) => value["#close"](),
   )
   .command("init", async (ctx) => {
     const name = await ctx.prompt.text("Project name?", { default: "my-app" });

@@ -1,5 +1,3 @@
-import * as readline from "node:readline";
-
 export interface RhythmPrompt {
   text(message: string, options?: { default?: string }): Promise<string>;
   confirm(message: string, options?: { default?: boolean }): Promise<boolean>;
@@ -23,21 +21,7 @@ export interface RhythmPromptIO {
 
 const CUSTOM_LABEL = "Other (type your own)";
 
-function defaultIO(
-  input: NodeJS.ReadableStream = process.stdin,
-  output: NodeJS.WritableStream = process.stdout,
-): RhythmPromptIO {
-  const rl = readline.createInterface({ input, output });
-  return {
-    ask: (query) => new Promise((resolve) => rl.question(query, resolve)),
-    write: (text) => {
-      output.write(text);
-    },
-    close: () => rl.close(),
-  };
-}
-
-export function createPrompt(io: RhythmPromptIO = defaultIO()): { prompt: RhythmPrompt; close: () => void } {
+export function createPrompt(io: RhythmPromptIO): { prompt: RhythmPrompt; close: () => void } {
   const { ask, write } = io;
 
   const text: RhythmPrompt["text"] = async (message, options) => {

@@ -1,4 +1,4 @@
-import { Rhythm, compose, type DeepReadonly, type Middleware, type NextFn } from "../core/rhythm";
+import { Rhythm, compose, type DeepReadonly, type Middleware, type NextFn, type OmitHashKeys } from "../core/rhythm";
 import type { RhythmCliContext } from "./adapters/context";
 import { parseArgv } from "./argv";
 
@@ -81,9 +81,9 @@ export class RhythmCli<
   override provide<TValue extends object>(
     factory: (deps: DeepReadonly<TProviders>) => TValue | Promise<TValue>,
     dispose?: (value: TValue) => void | Promise<void>,
-  ): RhythmCli<TContext & TValue, TProviders & TValue> {
+  ): RhythmCli<TContext & OmitHashKeys<TValue>, TProviders & OmitHashKeys<TValue>> {
     super.provide(factory, dispose);
-    return this as unknown as RhythmCli<TContext & TValue, TProviders & TValue>;
+    return this as unknown as RhythmCli<TContext & OmitHashKeys<TValue>, TProviders & OmitHashKeys<TValue>>;
   }
 
   override register(): never {
