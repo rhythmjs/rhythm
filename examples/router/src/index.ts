@@ -1,7 +1,7 @@
-import { Rhythm } from "../core/rhythm";
-import { toFetchHandler } from "./adapters/bun";
-import type { RhythmHttpContext } from "./adapters/context";
-import { RhythmRouter } from "./rhythm-router";
+import { Rhythm } from "@rhythmjs/rhythm";
+import { toFetchHandler } from "@rhythmjs/router/adapters/bun";
+import type { RhythmHttpContext } from "@rhythmjs/router/adapters/context";
+import { RhythmRouter } from "@rhythmjs/router";
 
 interface User {
   id: string;

@@ -1,4 +1,4 @@
-import { RhythmMutable } from "../../core/rhythm";
+import { RhythmMutable } from "@rhythmjs/rhythm";
 
 export class RhythmCliResponse {
   readonly [RhythmMutable] = true;

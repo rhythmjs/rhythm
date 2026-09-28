@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Rhythm } from "../core/rhythm";
+import { Rhythm } from "@rhythmjs/rhythm";
 import { RhythmCliResponse, type RhythmCliContext } from "./adapters/context";
 import { toCliHandler } from "./adapters/bun";
 import { RhythmCli } from "./rhythm-cli";

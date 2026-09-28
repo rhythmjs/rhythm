@@ -1,17 +1,21 @@
 {
   "name": "rhythmjs",
   "version": "0.0.1",
+  "private": true,
   "description": "A minimal, type-safe onion-middleware and provider composition kernel.",
   "type": "module",
+  "packageManager": "bun@1.4.2",
+  "workspaces": ["packages/*", "examples/*"],
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
     "@types/bun": "^1.4.2",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "turbo": "^2.5.0"
   }
 }

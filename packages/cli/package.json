@@ -1,0 +1,20 @@
+{
+  "name": "@rhythmjs/cli",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/rhythm-cli.ts",
+    "./argv": "./src/argv.ts",
+    "./prompt": "./src/prompt.ts",
+    "./adapters/bun": "./src/adapters/bun.ts",
+    "./adapters/context": "./src/adapters/context.ts"
+  },
+  "dependencies": {
+    "@rhythmjs/rhythm": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  }
+}

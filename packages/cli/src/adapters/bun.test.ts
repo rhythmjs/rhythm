@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { Rhythm } from "../../core/rhythm";
+import { Rhythm } from "@rhythmjs/rhythm";
 import type { RhythmCliContext } from "./context";
 import { createPrompt, toCliHandler } from "./bun";
 

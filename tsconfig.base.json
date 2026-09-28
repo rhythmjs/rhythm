@@ -12,6 +12,5 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "forceConsistentCasingInFileNames": true
-  },
-  "include": ["src"]
+  }
 }

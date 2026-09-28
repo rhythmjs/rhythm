@@ -1,0 +1,19 @@
+{
+  "name": "@rhythmjs/router",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/rhythm-router.ts",
+    "./radix-tree": "./src/radix-tree.ts",
+    "./adapters/bun": "./src/adapters/bun.ts",
+    "./adapters/context": "./src/adapters/context.ts"
+  },
+  "dependencies": {
+    "@rhythmjs/rhythm": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  }
+}

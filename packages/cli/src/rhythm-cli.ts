@@ -1,4 +1,4 @@
-import { Rhythm, compose, type DeepReadonly, type Middleware, type NextFn, type OmitHashKeys } from "../core/rhythm";
+import { Rhythm, compose, type DeepReadonly, type Middleware, type NextFn, type OmitHashKeys } from "@rhythmjs/rhythm";
 import type { RhythmCliContext } from "./adapters/context";
 import { parseArgv } from "./argv";
 

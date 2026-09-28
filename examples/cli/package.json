@@ -1,0 +1,13 @@
+{
+  "name": "cli-example",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@rhythmjs/rhythm": "workspace:*",
+    "@rhythmjs/cli": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

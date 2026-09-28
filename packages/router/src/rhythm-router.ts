@@ -1,4 +1,4 @@
-import { Rhythm, type DeepReadonly, type Middleware, type NextFn, type OmitHashKeys } from "../core/rhythm";
+import { Rhythm, type DeepReadonly, type Middleware, type NextFn, type OmitHashKeys } from "@rhythmjs/rhythm";
 import { createNode, insertRoute, joinPath, lookupRoute, type TreeNode } from "./radix-tree";
 import type { RhythmHttpContext } from "./adapters/context";
 

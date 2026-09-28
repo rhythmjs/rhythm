@@ -1,4 +1,4 @@
-import { compose, type Middleware, type NextFn } from "../core/rhythm";
+import { compose, type Middleware, type NextFn } from "@rhythmjs/rhythm";
 
 type RouteDispatch = (context: any, next?: NextFn<any>) => Promise<any>;
 

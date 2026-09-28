@@ -1,7 +1,7 @@
-import { Rhythm, type Middleware } from "../core/rhythm";
-import { createPrompt, toCliHandler } from "./adapters/bun";
-import type { RhythmCliContext } from "./adapters/context";
-import { RhythmCli } from "./rhythm-cli";
+import { Rhythm, type Middleware } from "@rhythmjs/rhythm";
+import { createPrompt, toCliHandler } from "@rhythmjs/cli/adapters/bun";
+import type { RhythmCliContext } from "@rhythmjs/cli/adapters/context";
+import { RhythmCli } from "@rhythmjs/cli";
 
 const remotes: Record<string, string> = {};
 

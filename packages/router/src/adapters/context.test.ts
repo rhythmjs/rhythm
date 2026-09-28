@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { RhythmMutable } from "../../core/rhythm";
+import { RhythmMutable } from "@rhythmjs/rhythm";
 import { RhythmResponse, toResponse } from "./context";
 
 describe("RhythmResponse", () => {

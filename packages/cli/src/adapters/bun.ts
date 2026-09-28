@@ -1,5 +1,5 @@
 import * as readline from "node:readline";
-import type { Rhythm } from "../../core/rhythm";
+import type { Rhythm } from "@rhythmjs/rhythm";
 import { parseArgv } from "../argv";
 import { createPrompt as createPromptWithIO, type RhythmPrompt, type RhythmPromptIO } from "../prompt";
 import { RhythmCliResponse, type RhythmCliContext } from "./context";

@@ -1,4 +1,4 @@
-import type { Rhythm } from "../../core/rhythm";
+import type { Rhythm } from "@rhythmjs/rhythm";
 import { RhythmResponse, toResponse, type RhythmHttpContext } from "./context";
 
 export function toFetchHandler<TContext extends RhythmHttpContext, TProviders extends object = {}>(
