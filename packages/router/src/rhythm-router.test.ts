@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Rhythm } from "@rhythmjs/rhythm";
 import { toFetchHandler } from "./adapters/bun";
 import type { RhythmHttpContext } from "./adapters/context";
@@ -80,7 +80,9 @@ describe("RhythmRouter", () => {
   test("a route middleware extends the context for later handlers via next(extra)", async () => {
     const router = new RhythmRouter().get<{ user?: { name: string } }>(
       "/users/:id",
-      (ctx, next) => { next({ user: { name: `user-${ctx.params.id}` } }) },
+      async (ctx, next) => {
+        await next({ user: { name: `user-${ctx.params.id}` } });
+      },
       (ctx) => {
         ctx.response.body = ctx.user?.name ?? "missing";
       },
@@ -97,11 +99,9 @@ describe("RhythmRouter", () => {
       await next();
     });
 
-    const app = new Rhythm<RhythmHttpContext>()
-      .register(router)
-      .use((ctx) => {
-        ctx.response.headers.set("x-app", "seen");
-      });
+    const app = new Rhythm<RhythmHttpContext>().register(router).use((ctx) => {
+      ctx.response.headers.set("x-app", "seen");
+    });
 
     const res = await toFetchHandler(app)(new Request("http://localhost/hello"));
 
@@ -145,7 +145,7 @@ describe("RhythmRouter", () => {
       expect(await res.text()).toBe("9");
     });
 
-    test("a thrown error tags the router as a controller, since RhythmRouter passes type: \"controller\" to Rhythm", async () => {
+    test('a thrown error tags the router as a controller, since RhythmRouter passes type: "controller" to Rhythm', async () => {
       const router = new RhythmRouter({ name: "broken-router", prefix: "/api" }).get("/boom", () => {
         throw new Error("kaboom");
       });
@@ -256,5 +256,4 @@ describe("RhythmRouter", () => {
       "RhythmRouter is a controller and cannot register() other modules or controllers",
     );
   });
-
 });

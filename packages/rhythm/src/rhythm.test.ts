@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Rhythm } from "./rhythm";
 
 describe("onion middleware", () => {
@@ -58,11 +58,9 @@ describe("register()", () => {
     });
 
     let seen: unknown;
-    const app = new Rhythm<{}>()
-      .register(child)
-      .use((ctx) => {
-        seen = (ctx as Record<string, unknown>).secret;
-      });
+    const app = new Rhythm<{}>().register(child).use((ctx) => {
+      seen = (ctx as Record<string, unknown>).secret;
+    });
 
     await app.run({});
     expect(seen).toBeUndefined();
@@ -98,7 +96,7 @@ describe("register()", () => {
     }
   });
 
-  test("options.type overrides the default \"module\" label used in the register() error", async () => {
+  test('options.type overrides the default "module" label used in the register() error', async () => {
     const child = new Rhythm<{}>({ name: "users", type: "controller" }).use(() => {
       throw new Error("boom");
     });
@@ -133,12 +131,10 @@ describe("register()", () => {
     const child = new Rhythm<{}>().use<{ secret: string }>(async (ctx, next) => {
       await next({ secret: "hidden" });
     });
-    new Rhythm<{}>()
-      .register(child)
-      .use((ctx) => {
-        // @ts-expect-error default register() stays sealed - `secret` must not be visible without exportValue
-        return ctx.secret;
-      });
+    new Rhythm<{}>().register(child).use((ctx) => {
+      // @ts-expect-error default register() stays sealed - `secret` must not be visible without exportValue
+      return ctx.secret;
+    });
   });
 
   test.skip("type system: a module needing fields the parent doesn't have cannot be registered", () => {

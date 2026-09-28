@@ -3,23 +3,28 @@
   "version": "0.0.1",
   "private": true,
   "description": "A minimal, type-safe onion-middleware and provider composition kernel.",
-  "type": "module",
-  "packageManager": "bun@1.4.2",
+  "keywords": [],
+  "license": "ISC",
+  "author": "",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/rhythmjs/rhythm.git"
   },
-  "workspaces": ["packages/*", "examples/*"],
+  "type": "module",
   "scripts": {
+    "build": "turbo run build",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "dev": "turbo run dev",
+    "lint": "vp lint",
+    "fmt": "vp fmt",
+    "fmt:check": "vp fmt --check",
+    "check": "vp check"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "devDependencies": {
-    "@types/bun": "^1.4.2",
+    "turbo": "^2.5.0",
     "typescript": "^7.0.2",
-    "turbo": "^2.5.0"
-  }
+    "vite-plus": "^1.0.0"
+  },
+  "packageManager": "pnpm@10.33.2"
 }

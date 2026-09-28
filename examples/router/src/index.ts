@@ -13,21 +13,22 @@ const users: Record<string, User> = {
   u2: { id: "u2", name: "Bob" },
 };
 
-const usersRouter = new RhythmRouter({ name: "users", prefix: "/users" })
-  .get<{ user: User }>("/:id",
-    (ctx, next) => {
-      const user = users[ctx.params.id];
-      if (!user) {
-        ctx.response.status = 404;
-        ctx.response.body = "Not Found";
-        return;
-      }
-      next({ user });
-    },
-    (ctx) => {
-      ctx.response.headers.set("content-type", "application/json");
-      ctx.response.body = JSON.stringify(ctx.user);
-    });
+const usersRouter = new RhythmRouter({ name: "users", prefix: "/users" }).get<{ user: User }>(
+  "/:id",
+  async (ctx, next) => {
+    const user = users[ctx.params.id];
+    if (!user) {
+      ctx.response.status = 404;
+      ctx.response.body = "Not Found";
+      return;
+    }
+    await next({ user });
+  },
+  (ctx) => {
+    ctx.response.headers.set("content-type", "application/json");
+    ctx.response.body = JSON.stringify(ctx.user);
+  },
+);
 
 const apiRouter = new RhythmRouter({ name: "api", prefix: "/api" }).use(usersRouter.routes());
 
@@ -36,10 +37,12 @@ const app = new Rhythm<RhythmHttpContext>({ name: "app" })
   .use(async (ctx, next) => {
     const startedAt = Date.now();
     await next();
-    ctx.logger.info(`${ctx.request.method} ${new URL(ctx.request.url).pathname} - ${ctx.response.status} in ${Date.now() - startedAt}ms`);
+    ctx.logger.info(
+      `${ctx.request.method} ${new URL(ctx.request.url).pathname} - ${ctx.response.status} in ${Date.now() - startedAt}ms`,
+    );
   })
   .use(apiRouter.routes())
-  .use(async (ctx, next) => {
+  .use(async (ctx) => {
     ctx.response.headers.set("content-type", "text/plain");
     if (new URL(ctx.request.url).pathname === "/") {
       ctx.response.status = 200;
@@ -48,7 +51,7 @@ const app = new Rhythm<RhythmHttpContext>({ name: "app" })
     }
     ctx.response.status = 404;
     ctx.response.body = "Not Found";
-  })
+  });
 
 const server = Bun.serve({ port: 3000, fetch: toFetchHandler(app) });
 console.log(`listening on http://localhost:${server.port}`);

@@ -62,7 +62,7 @@ export function compose<TContext extends object>(middleware: Middleware<TContext
 }
 
 type ProviderEntry = {
-  factory: (deps: any) => unknown | Promise<unknown>;
+  factory: (deps: any) => unknown;
   dispose?: (value: any) => void | Promise<void>;
   resolved?: unknown;
 };
@@ -73,11 +73,7 @@ export interface RhythmOptions {
   [key: string]: unknown;
 }
 
-export class Rhythm<
-  TInput extends object = {},
-  TContext extends object = TInput,
-  TProviders extends object = {},
-> {
+export class Rhythm<TInput extends object = {}, TContext extends object = TInput, TProviders extends object = {}> {
   #middleware: Middleware<any>[] = [];
   #options: RhythmOptions;
   #providers: ProviderEntry[] = [];

@@ -3,11 +3,16 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@rhythmjs/rhythm": "workspace:*",
     "@rhythmjs/router": "workspace:*"
   },
-  "scripts": {
-    "typecheck": "tsc --noEmit"
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2"
   }
 }

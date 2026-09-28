@@ -1,13 +1,21 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { Rhythm } from "@rhythmjs/rhythm";
 import { RhythmCliResponse, type RhythmCliContext } from "./adapters/context";
 import { toCliHandler } from "./adapters/bun";
 import { RhythmCli } from "./rhythm-cli";
 
+// Under `bun test` the runtime provides the Bun global; under vitest on Node it
+// has to be stubbed for the adapter's non-TTY stdin path.
+vi.stubGlobal("Bun", { stdin: { stream: () => new ReadableStream<Uint8Array>() } });
+
 function collect(app: Rhythm<RhythmCliContext, any, any>) {
   return async (argv: string[]) => {
     const ctx = await app.run({ argv, flags: {}, stdin: null, response: new RhythmCliResponse() });
-    return { stdout: ctx.response.stdout.join("\n"), stderr: ctx.response.stderr.join("\n"), exitCode: ctx.response.exitCode };
+    return {
+      stdout: ctx.response.stdout.join("\n"),
+      stderr: ctx.response.stderr.join("\n"),
+      exitCode: ctx.response.exitCode,
+    };
   };
 }
 

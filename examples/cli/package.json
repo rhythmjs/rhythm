@@ -3,11 +3,15 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "dependencies": {
-    "@rhythmjs/rhythm": "workspace:*",
-    "@rhythmjs/cli": "workspace:*"
-  },
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@rhythmjs/cli": "workspace:*",
+    "@rhythmjs/rhythm": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2"
   }
 }

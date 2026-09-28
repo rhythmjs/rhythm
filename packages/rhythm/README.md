@@ -4,7 +4,7 @@ The core composition kernel `@rhythmjs/router` and `@rhythmjs/cli` are built on.
 
 ## Concepts
 
-- **Onion middleware** — `use()` wraps downstream steps, running code before *and* after `next()`.
+- **Onion middleware** — `use()` wraps downstream steps, running code before _and_ after `next()`.
 - **Providers** — `provide()` registers a value or async factory that resolves once and is injected into every request's context. A returned key prefixed with `#` (e.g. `"#close"`) stays out of context but is still passed in full to `dispose()`.
 - **Encapsulated modules** — `register()` mounts a child `Rhythm`; its context stays sealed unless you explicitly export fields from it.
 - **Readonly context** — the context passed to middleware is deeply readonly at the type level; state only changes via `next(extra)`, or through a value branded with the `RhythmMutable` symbol (how `RhythmRouter`/`RhythmCli`'s response objects stay mutable).

@@ -1,4 +1,4 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { Rhythm } from "@rhythmjs/rhythm";
 import type { RhythmCliContext } from "./context";
 import { createPrompt, toCliHandler } from "./node";
@@ -42,8 +42,8 @@ describe("toCliHandler()", () => {
       ctx.response.print("hello").printError("warn");
     });
 
-    const logSpy = spyOn(console, "log").mockImplementation(() => {});
-    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       await toCliHandler(app)([]);
       expect(logSpy).toHaveBeenCalledWith("hello");

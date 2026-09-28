@@ -1,13 +1,39 @@
 {
   "name": "@rhythmjs/rhythm",
   "version": "0.0.1",
-  "private": true,
+  "description": "A minimal, type-safe onion-middleware and provider composition kernel.",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rhythmjs/rhythm.git",
+    "directory": "packages/rhythm"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
-    ".": "./src/rhythm.ts"
+    ".": {
+      "types": "./dist/rhythm.d.ts",
+      "default": "./dist/rhythm.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
+    "build": "vp pack",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "vp test"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2",
+    "vite-plus": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=20.19.0"
   }
 }

@@ -1,4 +1,4 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test, vi } from "vite-plus/test";
 import * as http from "node:http";
 import { Rhythm } from "@rhythmjs/rhythm";
 import { toNodeHandler } from "./node";
@@ -82,7 +82,7 @@ describe("toNodeHandler()", () => {
     });
 
     await withServer(app, async (base) => {
-      const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       try {
         const failed = await fetch(base);
         expect(failed.status).toBe(500);

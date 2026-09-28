@@ -1,7 +1,11 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { Rhythm } from "@rhythmjs/rhythm";
 import type { RhythmCliContext } from "./context";
 import { createPrompt, toCliHandler } from "./bun";
+
+// Under `bun test` the runtime provides the Bun global; under vitest on Node it
+// has to be stubbed for the adapter's non-TTY stdin path.
+vi.stubGlobal("Bun", { stdin: { stream: () => new ReadableStream<Uint8Array>() } });
 
 function withStdinTTY<T>(isTTY: boolean, fn: () => T): T {
   const original = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
@@ -42,8 +46,8 @@ describe("toCliHandler()", () => {
       ctx.response.print("hello").printError("warn");
     });
 
-    const logSpy = spyOn(console, "log").mockImplementation(() => {});
-    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       await toCliHandler(app)([]);
       expect(logSpy).toHaveBeenCalledWith("hello");

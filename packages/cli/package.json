@@ -1,22 +1,67 @@
 {
   "name": "@rhythmjs/cli",
   "version": "0.0.1",
-  "private": true,
+  "description": "Command-line argument parsing, prompts, and command routing for the Rhythm middleware kernel.",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rhythmjs/rhythm.git",
+    "directory": "packages/cli"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
-    ".": "./src/rhythm-cli.ts",
-    "./argv": "./src/argv.ts",
-    "./prompt": "./src/prompt.ts",
-    "./adapters/bun": "./src/adapters/bun.ts",
-    "./adapters/deno": "./src/adapters/deno.ts",
-    "./adapters/node": "./src/adapters/node.ts",
-    "./adapters/context": "./src/adapters/context.ts"
+    ".": {
+      "types": "./dist/rhythm-cli.d.ts",
+      "default": "./dist/rhythm-cli.js"
+    },
+    "./argv": {
+      "types": "./dist/argv.d.ts",
+      "default": "./dist/argv.js"
+    },
+    "./prompt": {
+      "types": "./dist/prompt.d.ts",
+      "default": "./dist/prompt.js"
+    },
+    "./adapters/bun": {
+      "types": "./dist/adapters/bun.d.ts",
+      "default": "./dist/adapters/bun.js"
+    },
+    "./adapters/deno": {
+      "types": "./dist/adapters/deno.d.ts",
+      "default": "./dist/adapters/deno.js"
+    },
+    "./adapters/node": {
+      "types": "./dist/adapters/node.d.ts",
+      "default": "./dist/adapters/node.js"
+    },
+    "./adapters/context": {
+      "types": "./dist/adapters/context.d.ts",
+      "default": "./dist/adapters/context.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "typecheck": "tsc --noEmit",
+    "test": "vp test"
   },
   "dependencies": {
     "@rhythmjs/rhythm": "workspace:*"
   },
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "bun test"
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2",
+    "vite-plus": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=20.19.0"
   }
 }

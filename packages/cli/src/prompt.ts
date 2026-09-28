@@ -14,9 +14,9 @@ export interface RhythmPrompt {
 }
 
 export interface RhythmPromptIO {
-  ask(query: string): Promise<string>;
-  write(text: string): void;
-  close?(): void;
+  ask(this: void, query: string): Promise<string>;
+  write(this: void, text: string): void;
+  close?(this: void): void;
 }
 
 const CUSTOM_LABEL = "Other (type your own)";
