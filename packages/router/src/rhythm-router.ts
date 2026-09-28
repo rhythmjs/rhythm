@@ -99,28 +99,43 @@ export class RhythmRouter<
     });
   }
 
-  #route(method: HttpMethod, path: string, handlers: Middleware<TContext & RhythmRouterContext>[]): this {
+  #route(method: HttpMethod, path: string, handlers: Middleware<any>[]): this {
     this.#registerRoute(method, joinPath(this.#prefix, path), handlers);
     return this;
   }
 
-  get(path: string, ...handlers: Middleware<TContext & RhythmRouterContext>[]): this {
+  get<TExtra extends object = {}>(
+    path: string,
+    ...handlers: Middleware<TContext & RhythmRouterContext & TExtra>[]
+  ): this {
     return this.#route("GET", path, handlers);
   }
 
-  post(path: string, ...handlers: Middleware<TContext & RhythmRouterContext>[]): this {
+  post<TExtra extends object = {}>(
+    path: string,
+    ...handlers: Middleware<TContext & RhythmRouterContext & TExtra>[]
+  ): this {
     return this.#route("POST", path, handlers);
   }
 
-  put(path: string, ...handlers: Middleware<TContext & RhythmRouterContext>[]): this {
+  put<TExtra extends object = {}>(
+    path: string,
+    ...handlers: Middleware<TContext & RhythmRouterContext & TExtra>[]
+  ): this {
     return this.#route("PUT", path, handlers);
   }
 
-  patch(path: string, ...handlers: Middleware<TContext & RhythmRouterContext>[]): this {
+  patch<TExtra extends object = {}>(
+    path: string,
+    ...handlers: Middleware<TContext & RhythmRouterContext & TExtra>[]
+  ): this {
     return this.#route("PATCH", path, handlers);
   }
 
-  delete(path: string, ...handlers: Middleware<TContext & RhythmRouterContext>[]): this {
+  delete<TExtra extends object = {}>(
+    path: string,
+    ...handlers: Middleware<TContext & RhythmRouterContext & TExtra>[]
+  ): this {
     return this.#route("DELETE", path, handlers);
   }
 

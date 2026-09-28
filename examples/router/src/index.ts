@@ -13,17 +13,21 @@ const users: Record<string, User> = {
   u2: { id: "u2", name: "Bob" },
 };
 
-const usersRouter = new RhythmRouter({ name: "users", prefix: "/users" }).get("/:id", (ctx) => {
-  const user = users[ctx.params.id];
-  if (!user) {
-    ctx.response.status = 404;
-    ctx.response.body = "Not Found";
-    return;
-  }
-
-  ctx.response.headers.set("content-type", "application/json");
-  ctx.response.body = JSON.stringify(user);
-});
+const usersRouter = new RhythmRouter({ name: "users", prefix: "/users" })
+  .get<{ user: User }>("/:id",
+    (ctx, next) => {
+      const user = users[ctx.params.id];
+      if (!user) {
+        ctx.response.status = 404;
+        ctx.response.body = "Not Found";
+        return;
+      }
+      next({ user });
+    },
+    (ctx) => {
+      ctx.response.headers.set("content-type", "application/json");
+      ctx.response.body = JSON.stringify(ctx.user);
+    });
 
 const apiRouter = new RhythmRouter({ name: "api", prefix: "/api" }).use(usersRouter.routes());
 

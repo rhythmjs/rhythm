@@ -77,6 +77,20 @@ describe("RhythmRouter", () => {
     expect(events).toEqual(["auth:before", "handler:7", "auth:after"]);
   });
 
+  test("a route middleware extends the context for later handlers via next(extra)", async () => {
+    const router = new RhythmRouter().get<{ user?: { name: string } }>(
+      "/users/:id",
+      (ctx, next) => { next({ user: { name: `user-${ctx.params.id}` } }) },
+      (ctx) => {
+        ctx.response.body = ctx.user?.name ?? "missing";
+      },
+    );
+
+    const res = await toFetchHandler(router)(new Request("http://localhost/users/7"));
+
+    expect(await res.text()).toBe("user-7");
+  });
+
   test("a route match still lets the parent app's downstream middleware run via next()", async () => {
     const router = new RhythmRouter().get("/hello", async (ctx, next) => {
       ctx.response.body = "router";
