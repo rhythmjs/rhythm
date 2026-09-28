@@ -13,7 +13,7 @@ const users: Record<string, User> = {
   u2: { id: "u2", name: "Bob" },
 };
 
-const usersRouter = new RhythmRouter({ name: "users", prefix: "/users" }).get<{ user: User }>(
+const usersRouter = new RhythmRouter({ prefix: "/users" }).get<{ user: User }>(
   "/:id",
   async (ctx, next) => {
     const user = users[ctx.params.id];
@@ -30,7 +30,7 @@ const usersRouter = new RhythmRouter({ name: "users", prefix: "/users" }).get<{ 
   },
 );
 
-const apiRouter = new RhythmRouter({ name: "api", prefix: "/api" }).use(usersRouter.routes());
+const apiRouter = new RhythmRouter({ prefix: "/api" }).use(usersRouter);
 
 const app = new Rhythm<RhythmHttpContext>({ name: "app" })
   .provide(() => ({ logger: { info: (msg: string) => console.log(`[app] ${msg}`) } }))

@@ -1,11 +1,12 @@
-import { Rhythm, type Middleware } from "@rhythmjs/rhythm";
+import { Rhythm } from "@rhythmjs/rhythm";
 import { createPrompt, toCliHandler } from "@rhythmjs/cli/adapters/bun";
 import type { RhythmCliContext } from "@rhythmjs/cli/adapters/context";
+import type { RhythmPrompt } from "@rhythmjs/cli/prompt";
 import { RhythmCli } from "@rhythmjs/cli";
 
 const remotes: Record<string, string> = {};
 
-const remoteCli = new RhythmCli({ name: "remote", prefix: "remote" })
+const remoteCli = new RhythmCli({ prefix: "remote" })
   .command("add :name :url", (ctx) => {
     remotes[ctx.args.name] = ctx.args.url;
     ctx.response.print(`added remote "${ctx.args.name}" -> ${ctx.args.url}`);
@@ -15,14 +16,7 @@ const remoteCli = new RhythmCli({ name: "remote", prefix: "remote" })
     ctx.response.print(lines.length ? lines.join("\n") : "(no remotes)");
   });
 
-const rootCli = new RhythmCli({ name: "example" })
-  .provide(
-    () => {
-      const created = createPrompt();
-      return { prompt: created.prompt, "#close": created.close };
-    },
-    (value) => value["#close"](),
-  )
+const rootCli = new RhythmCli<RhythmCliContext & { prompt: RhythmPrompt }>()
   .command("init", async (ctx) => {
     const name = await ctx.prompt.text("Project name?", { default: "my-app" });
     const useTypeScript = await ctx.prompt.confirm("Use TypeScript?", { default: true });
@@ -31,14 +25,21 @@ const rootCli = new RhythmCli({ name: "example" })
     });
     ctx.response.print(`Created "${name}" (${useTypeScript ? "TypeScript" : "JavaScript"}, ${packageManager})`);
   })
-  .use(remoteCli.commands());
+  .use(remoteCli);
 
 const app = new Rhythm<RhythmCliContext>({ name: "app" })
+  .provide(
+    () => {
+      const created = createPrompt();
+      return { prompt: created.prompt, "#close": created.close };
+    },
+    (value) => value["#close"](),
+  )
   .use(async (ctx, next) => {
     if (ctx.flags.verbose) console.error(`[cli] argv: ${ctx.argv.join(" ")}`);
     await next();
   })
-  .use(rootCli.commands() as unknown as Middleware<RhythmCliContext>)
+  .use(rootCli.commands())
   .use((ctx) => {
     ctx.response.exit(1).printError(`Unknown command: ${ctx.argv.join(" ") || "(none)"}`);
   });

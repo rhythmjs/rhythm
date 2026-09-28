@@ -1,4 +1,4 @@
-import { Rhythm, type DeepReadonly, type Middleware, type NextFn, type OmitHashKeys } from "@rhythmjs/rhythm";
+import { compose, type Middleware, type NextFn } from "@rhythmjs/rhythm";
 import { createNode, insertRoute, joinPath, lookupRoute, type TreeNode } from "./radix-tree";
 import type { RhythmHttpContext } from "./adapters/context";
 
@@ -6,101 +6,47 @@ export interface RhythmRouterContext {
   params: Record<string, string>;
 }
 
-const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
-type HttpMethod = (typeof HTTP_METHODS)[number];
+type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export interface RhythmRouterOptions {
-  name?: string;
   prefix?: string;
 }
 
-const RhythmRouterTag = Symbol("RhythmRouterTag");
+type Entry =
+  | { kind: "middleware"; fn: Middleware<any> }
+  | { kind: "route"; method: HttpMethod; path: string; handlers: Middleware<any>[] };
 
-type RouteEntry = {
-  kind: "route";
-  method: HttpMethod;
-  path: string;
-  handlers: Middleware<any>[];
-};
-
-type MiddlewareEntry = {
-  kind: "middleware";
-  fn: Middleware<any>;
-};
-
-type Entry = RouteEntry | MiddlewareEntry;
-
-type TaggedMiddleware = Middleware<any> & { [RhythmRouterTag]?: RhythmRouter<any, any> };
-
-export class RhythmRouter<
-  TContext extends RhythmHttpContext = RhythmHttpContext,
-  TProviders extends object = {},
-> extends Rhythm<RhythmHttpContext, TContext, TProviders> {
-  #prefix: string;
+export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext> {
+  #options: RhythmRouterOptions;
   #entries: Entry[] = [];
-  #tree: TreeNode<HttpMethod> = createNode<HttpMethod>();
-  #dispatchInstalled = false;
+  #composed: ((context: TContext, next?: NextFn<TContext>) => Promise<TContext>) | null = null;
 
   constructor(options: RhythmRouterOptions = {}) {
-    super({ name: options.name ?? "router", type: "controller" });
-    this.#prefix = options.prefix ?? "";
+    this.#options = options;
   }
 
-  override use<TExtra extends object = {}>(fn: Middleware<TContext>): RhythmRouter<TContext & TExtra, TProviders> {
-    const nested = (fn as TaggedMiddleware)[RhythmRouterTag];
-    if (nested) {
-      for (const entry of nested.#entries) this.#mount(entry);
-    } else {
-      this.#entries.push({ kind: "middleware", fn });
-      super.use(fn);
-    }
-    return this as unknown as RhythmRouter<TContext & TExtra, TProviders>;
+  get #prefix(): string {
+    return this.#options.prefix ?? "";
   }
 
-  override provide<TValue extends object>(
-    factory: (deps: DeepReadonly<TProviders>) => TValue | Promise<TValue>,
-    dispose?: (value: TValue) => void | Promise<void>,
-  ): RhythmRouter<TContext & OmitHashKeys<TValue>, TProviders & OmitHashKeys<TValue>> {
-    super.provide(factory, dispose);
-    return this as unknown as RhythmRouter<TContext & OmitHashKeys<TValue>, TProviders & OmitHashKeys<TValue>>;
-  }
-
-  override register(): never {
-    throw new Error("RhythmRouter is a controller and cannot register() other modules or controllers");
-  }
-
-  #mount(entry: Entry): void {
-    if (entry.kind === "middleware") {
-      this.#entries.push(entry);
-      super.use(entry.fn);
-      return;
-    }
-    this.#registerRoute(entry.method, joinPath(this.#prefix, entry.path), entry.handlers);
-  }
-
-  #registerRoute(method: HttpMethod, fullPath: string, handlers: Middleware<any>[]): void {
-    this.#entries.push({ kind: "route", method, path: fullPath, handlers });
-    insertRoute(this.#tree, method, fullPath, handlers);
-
-    if (this.#dispatchInstalled) return;
-    this.#dispatchInstalled = true;
-
-    const tree = this.#tree;
-    super.use(async (ctx, next) => {
-      const match = lookupRoute(tree, ctx.request.method, new URL(ctx.request.url).pathname);
-      if (!match) {
-        await next();
-        return;
+  use(child: RhythmRouter<any>): this;
+  use<TExtra extends object = {}>(fn: Middleware<TContext>): RhythmRouter<TContext & TExtra>;
+  use(arg: Middleware<TContext> | RhythmRouter<any>): RhythmRouter<any> {
+    if (arg instanceof RhythmRouter) {
+      for (const entry of arg.#entries) {
+        this.#entries.push(entry.kind === "route" ? { ...entry, path: joinPath(this.#prefix, entry.path) } : entry);
       }
-      await match.entry.dispatch(
-        { ...ctx, params: match.params } as TContext & RhythmRouterContext,
-        next as unknown as NextFn<TContext & RhythmRouterContext>,
-      );
-    });
+    } else {
+      if (typeof arg !== "function") throw new TypeError("middleware must be a function!");
+      this.#entries.push({ kind: "middleware", fn: arg });
+    }
+    this.#composed = null;
+    return this;
   }
 
   #route(method: HttpMethod, path: string, handlers: Middleware<any>[]): this {
-    this.#registerRoute(method, joinPath(this.#prefix, path), handlers);
+    this.#entries.push({ kind: "route", method, path: joinPath(this.#prefix, path), handlers });
+    this.#composed = null;
     return this;
   }
 
@@ -139,9 +85,48 @@ export class RhythmRouter<
     return this.#route("DELETE", path, handlers);
   }
 
+  #compile(): (context: TContext, next?: NextFn<TContext>) => Promise<TContext> {
+    if (this.#composed) return this.#composed;
+
+    type RouteDispatch = (context: TContext & RhythmRouterContext, next?: NextFn<any>) => Promise<unknown>;
+
+    const dispatchFor = (tree: TreeNode<HttpMethod, RouteDispatch>): Middleware<any> => {
+      return async (ctx, next) => {
+        const match = lookupRoute(tree, ctx.request.method, new URL(ctx.request.url).pathname);
+        if (!match) {
+          await next();
+          return;
+        }
+        await match.payload({ ...ctx, params: match.params } as TContext & RhythmRouterContext, next);
+      };
+    };
+
+    const stack: Middleware<any>[] = [];
+    let i = 0;
+    while (i < this.#entries.length) {
+      const entry = this.#entries[i]!;
+      if (entry.kind === "middleware") {
+        stack.push(entry.fn);
+        i++;
+        continue;
+      }
+      const tree = createNode<HttpMethod, RouteDispatch>();
+      while (i < this.#entries.length) {
+        const route = this.#entries[i]!;
+        if (route.kind !== "route") break;
+        insertRoute(tree, route.method, route.path, compose(route.handlers) as RouteDispatch);
+        i++;
+      }
+      stack.push(dispatchFor(tree));
+    }
+
+    this.#composed = compose<TContext>(stack);
+    return this.#composed;
+  }
+
   routes(): Middleware<TContext> {
-    const mw = this.middleware() as TaggedMiddleware;
-    mw[RhythmRouterTag] = this;
-    return mw;
+    return async (ctx, next) => {
+      await this.#compile()(ctx as unknown as TContext, next);
+    };
   }
 }

@@ -3,8 +3,6 @@ import { Rhythm } from "@rhythmjs/rhythm";
 import type { RhythmCliContext } from "./context";
 import { createPrompt, toCliHandler } from "./bun";
 
-// Under `bun test` the runtime provides the Bun global; under vitest on Node it
-// has to be stubbed for the adapter's non-TTY stdin path.
 vi.stubGlobal("Bun", { stdin: { stream: () => new ReadableStream<Uint8Array>() } });
 
 function withStdinTTY<T>(isTTY: boolean, fn: () => T): T {

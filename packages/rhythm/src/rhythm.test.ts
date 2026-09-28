@@ -235,6 +235,22 @@ describe("provide()", () => {
     expect(disposedWith).toHaveProperty("prompt");
   });
 
+  test("provide() is positional - middleware registered before it doesn't see the value on the way down", async () => {
+    const seen: unknown[] = [];
+    const app = new Rhythm<{}>()
+      .use(async (ctx, next) => {
+        seen.push((ctx as Record<string, unknown>).value);
+        await next();
+      })
+      .provide(() => ({ value: 42 }))
+      .use((ctx) => {
+        seen.push(ctx.value);
+      });
+
+    await app.run({});
+    expect(seen).toEqual([undefined, 42]);
+  });
+
   test("a plain key (no # prefix) is unaffected and reaches context as before", async () => {
     const app = new Rhythm<{}>()
       .provide(() => ({ value: 1, extra: "x" }))

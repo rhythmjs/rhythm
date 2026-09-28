@@ -109,7 +109,6 @@ describe("toNodeHandler()", () => {
       const port = typeof address === "object" && address ? address.port : 0;
       const base = `http://localhost:${port}`;
 
-      // larger than the default 1mb buffering limit, to prove it isn't being enforced
       const big = new Uint8Array(2 * 1024 * 1024).fill(65);
       const res = await fetch(base, { method: "POST", body: big });
       expect(res.status).toBe(200);
@@ -140,7 +139,6 @@ describe("toNodeHandler()", () => {
 
   test("an unread request body doesn't stall the next request on a keep-alive connection", async () => {
     const app = new Rhythm<RhythmHttpContext>().use((ctx) => {
-      // deliberately never reads ctx.request's body
       ctx.response.body = "ok";
     });
     const server = http.createServer(toNodeHandler(app, { bodyLimit: 10 * 1024 * 1024 }));

@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import type { Rhythm } from "@rhythmjs/rhythm";
 import { RhythmResponse, toResponse, type RhythmHttpContext } from "./context";
 
-const DEFAULT_BODY_LIMIT = 1024 * 1024; // 1mb, same default raw-body/koa-bodyparser use
+const DEFAULT_BODY_LIMIT = 1024 * 1024;
 
 export class RhythmBodyTooLargeError extends Error {
   constructor(limit: number) {
@@ -12,11 +12,6 @@ export class RhythmBodyTooLargeError extends Error {
   }
 }
 
-// Buffers the body eagerly, the same way raw-body (which koa-bodyparser/co-body build
-// on) does: plain 'data'/'end' listeners on the raw Node stream, not Readable.toWeb().
-// This guarantees the socket is fully drained before the handler runs, regardless of
-// whether the handler ever reads ctx.request's body - otherwise, on a keep-alive
-// connection, unconsumed bytes left on the socket stall the next request on it.
 function readRawBody(req: IncomingMessage, limit: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -27,9 +22,6 @@ function readRawBody(req: IncomingMessage, limit: number): Promise<Buffer> {
     req.on("data", (chunk: Buffer) => {
       received += chunk.length;
       if (received > limit) {
-        // Keep draining (discarding, not buffering) rather than destroying the
-        // socket outright - destroying mid-upload races the client's still-in-flight
-        // write and produces an abrupt ECONNRESET instead of a clean 413 response.
         if (!tooLarge) {
           tooLarge = true;
           settled = true;
@@ -76,10 +68,6 @@ async function toWebRequest(req: IncomingMessage, bodyLimit: number | false): Pr
   if (!hasBody) return new Request(url, { method, headers });
 
   if (bodyLimit === false) {
-    // Streaming opt-out: no buffering, no size limit, no automatic drain if the
-    // handler never reads ctx.request's body - the caller owns that trade-off in
-    // exchange for being able to pass a large body through (uploads, proxying)
-    // without materializing it in memory. Same caveat Koa's own core carries.
     return new Request(url, {
       method,
       headers,
@@ -120,16 +108,6 @@ async function writeWebResponse(response: Response, res: ServerResponse): Promis
 }
 
 export interface RhythmNodeHandlerOptions {
-  /**
-   * Maximum request body size in bytes, enforced by eagerly buffering the body
-   * before the handler runs. Defaults to 1mb, same as raw-body/koa-bodyparser.
-   *
-   * Pass `false` to opt out of buffering entirely: ctx.request's body becomes a
-   * live stream over the raw connection, with no size limit and no automatic
-   * drain if the handler doesn't read it (see the adapter's README for the
-   * keep-alive caveat that reintroduces). Use this for uploads or proxying,
-   * where materializing the whole body in memory isn't acceptable.
-   */
   bodyLimit?: number | false;
 }
 

@@ -1,23 +1,14 @@
-import { compose, type Middleware, type NextFn } from "@rhythmjs/rhythm";
-
-type RouteDispatch = (context: any, next?: NextFn<any>) => Promise<any>;
-
-export type MethodEntry = {
-  handlers: Middleware<any>[];
-  dispatch: RouteDispatch;
-};
-
-export class TreeNode<TMethod extends string = string> {
+export class TreeNode<TMethod extends string = string, TPayload = unknown> {
   path = "";
   indices = "";
-  children: TreeNode<TMethod>[] = [];
-  paramChild: TreeNode<TMethod> | null = null;
+  children: TreeNode<TMethod, TPayload>[] = [];
+  paramChild: TreeNode<TMethod, TPayload> | null = null;
   paramName = "";
-  methods: Map<TMethod, MethodEntry> | null = null;
+  methods: Map<TMethod, TPayload> | null = null;
 }
 
-export function createNode<TMethod extends string = string>(): TreeNode<TMethod> {
-  return new TreeNode<TMethod>();
+export function createNode<TMethod extends string = string, TPayload = unknown>(): TreeNode<TMethod, TPayload> {
+  return new TreeNode<TMethod, TPayload>();
 }
 
 function commonPrefixLength(a: string, b: string): number {
@@ -27,8 +18,8 @@ function commonPrefixLength(a: string, b: string): number {
   return i;
 }
 
-function splitChild<TMethod extends string>(node: TreeNode<TMethod>, at: number): void {
-  const tail = new TreeNode<TMethod>();
+function splitChild<TMethod extends string, TPayload>(node: TreeNode<TMethod, TPayload>, at: number): void {
+  const tail = new TreeNode<TMethod, TPayload>();
   tail.path = node.path.slice(at);
   tail.indices = node.indices;
   tail.children = node.children;
@@ -44,27 +35,27 @@ function splitChild<TMethod extends string>(node: TreeNode<TMethod>, at: number)
   node.methods = null;
 }
 
-function insertAt<TMethod extends string>(
-  node: TreeNode<TMethod>,
+function insertAt<TMethod extends string, TPayload>(
+  node: TreeNode<TMethod, TPayload>,
   path: string,
   method: TMethod,
-  handlers: Middleware<any>[],
+  payload: TPayload,
 ): void {
   if (path.length === 0) {
     if (!node.methods) node.methods = new Map();
-    node.methods.set(method, { handlers, dispatch: compose(handlers) });
+    node.methods.set(method, payload);
     return;
   }
 
-  if (path.charCodeAt(0) === 58 /* ":" */) {
+  if (path.charCodeAt(0) === 58) {
     const slashIndex = path.indexOf("/");
     const name = slashIndex === -1 ? path.slice(1) : path.slice(1, slashIndex);
     const rest = slashIndex === -1 ? "" : path.slice(slashIndex);
     if (!node.paramChild) {
-      node.paramChild = new TreeNode<TMethod>();
+      node.paramChild = new TreeNode<TMethod, TPayload>();
       node.paramChild.paramName = name;
     }
-    insertAt(node.paramChild, rest, method, handlers);
+    insertAt(node.paramChild, rest, method, payload);
     return;
   }
 
@@ -78,38 +69,38 @@ function insertAt<TMethod extends string>(
     const cpl = commonPrefixLength(staticPart, child.path);
     if (cpl === 0) continue;
     if (cpl < child.path.length) splitChild(child, cpl);
-    insertAt(child, path.slice(cpl), method, handlers);
+    insertAt(child, path.slice(cpl), method, payload);
     return;
   }
 
-  const child = new TreeNode<TMethod>();
+  const child = new TreeNode<TMethod, TPayload>();
   child.path = staticPart;
   node.children.push(child);
   node.indices += firstChar;
-  insertAt(child, path.slice(staticPart.length), method, handlers);
+  insertAt(child, path.slice(staticPart.length), method, payload);
 }
 
-export function insertRoute<TMethod extends string>(
-  root: TreeNode<TMethod>,
+export function insertRoute<TMethod extends string, TPayload>(
+  root: TreeNode<TMethod, TPayload>,
   method: TMethod,
   path: string,
-  handlers: Middleware<any>[],
+  payload: TPayload,
 ): void {
-  insertAt(root, path, method, handlers);
+  insertAt(root, path, method, payload);
 }
 
-export function lookupRoute<TMethod extends string>(
-  root: TreeNode<TMethod>,
+export function lookupRoute<TMethod extends string, TPayload>(
+  root: TreeNode<TMethod, TPayload>,
   method: string,
   pathname: string,
-): { entry: MethodEntry; params: Record<string, string> } | null {
+): { payload: TPayload; params: Record<string, string> } | null {
   const params: Record<string, string> = {};
   let node = root;
   let path = pathname;
 
   while (path.length > 0) {
     const firstChar = path.charAt(0);
-    let matched: TreeNode<TMethod> | null = null;
+    let matched: TreeNode<TMethod, TPayload> | null = null;
 
     for (let i = 0; i < node.children.length; i++) {
       if (node.indices.charAt(i) !== firstChar) continue;
@@ -140,9 +131,9 @@ export function lookupRoute<TMethod extends string>(
   }
 
   if (!node.methods) return null;
-  const entry = node.methods.get(method as TMethod);
-  if (!entry) return null;
-  return { entry, params };
+  const payload = node.methods.get(method as TMethod);
+  if (payload === undefined) return null;
+  return { payload, params };
 }
 
 export function joinPath(prefix: string, path: string): string {

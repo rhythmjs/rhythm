@@ -78,7 +78,6 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
   #options: RhythmOptions;
   #providers: ProviderEntry[] = [];
   #setupPromise: Promise<void> | null = null;
-  #providedCache: Record<string, unknown> | null = null;
   #composed: ((context: TContext, next?: NextFn<TContext>) => Promise<TContext>) | null = null;
   #callbackFn: ((input: TInput) => Promise<TContext>) | null = null;
 
@@ -97,7 +96,16 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
     factory: (deps: DeepReadonly<TProviders>) => TValue | Promise<TValue>,
     dispose?: (value: TValue) => void | Promise<void>,
   ): Rhythm<TInput, TContext & OmitHashKeys<TValue>, TProviders & OmitHashKeys<TValue>> {
-    this.#providers.push({ factory, dispose });
+    const entry: ProviderEntry = { factory, dispose };
+    this.#providers.push(entry);
+    this.#middleware.push(async (ctx, next) => {
+      const exported: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(entry.resolved as object)) {
+        if (!key.startsWith("#")) exported[key] = value;
+      }
+      await next(exported);
+    });
+    this.#invalidateCallback();
     return this as unknown as Rhythm<TInput, TContext & OmitHashKeys<TValue>, TProviders & OmitHashKeys<TValue>>;
   }
 
@@ -150,7 +158,6 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
         if (!key.startsWith("#")) resolved[key] = value;
       }
     }
-    this.#providedCache = resolved;
   }
 
   async teardown(): Promise<void> {
@@ -165,7 +172,7 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
       const fn = this.#composed;
       this.#callbackFn = async (input: TInput) => {
         await this.setup();
-        return fn({ ...(this.#providedCache as Record<string, unknown>), ...input } as unknown as TContext);
+        return fn({ ...input } as unknown as TContext);
       };
     }
     return this.#callbackFn;
@@ -179,9 +186,7 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
     return async (ctx, next) => {
       await this.setup();
       if (!this.#composed) this.#composed = compose<TContext>(this.#middleware);
-      const context = ctx as unknown as TContext;
-      Object.assign(context, this.#providedCache);
-      await this.#composed(context, next);
+      await this.#composed(ctx as unknown as TContext, next);
     };
   }
 }

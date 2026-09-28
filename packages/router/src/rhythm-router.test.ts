@@ -4,13 +4,15 @@ import { toFetchHandler } from "./adapters/bun";
 import type { RhythmHttpContext } from "./adapters/context";
 import { RhythmRouter } from "./rhythm-router";
 
+const serve = (router: RhythmRouter<any>) => toFetchHandler(new Rhythm<RhythmHttpContext>().use(router.routes()));
+
 describe("RhythmRouter", () => {
   test("matches method + path and extracts named params", async () => {
     const router = new RhythmRouter().get("/users/:id", (ctx) => {
       ctx.response.body = `user ${ctx.params.id}`;
     });
 
-    const res = await toFetchHandler(router)(new Request("http://localhost/users/42"));
+    const res = await serve(router)(new Request("http://localhost/users/42"));
 
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("user 42");
@@ -25,10 +27,10 @@ describe("RhythmRouter", () => {
         ctx.response.body = "static";
       });
 
-    const res = await toFetchHandler(router)(new Request("http://localhost/users/active"));
+    const res = await serve(router)(new Request("http://localhost/users/active"));
     expect(await res.text()).toBe("static");
 
-    const paramRes = await toFetchHandler(router)(new Request("http://localhost/users/42"));
+    const paramRes = await serve(router)(new Request("http://localhost/users/42"));
     expect(await paramRes.text()).toBe("param:42");
   });
 
@@ -41,7 +43,7 @@ describe("RhythmRouter", () => {
         ctx.response.body = "post";
       });
 
-    const res = await toFetchHandler(router)(new Request("http://localhost/ping", { method: "POST" }));
+    const res = await serve(router)(new Request("http://localhost/ping", { method: "POST" }));
 
     expect(await res.text()).toBe("post");
   });
@@ -51,7 +53,7 @@ describe("RhythmRouter", () => {
       ctx.response.body = "known";
     });
 
-    const res = await toFetchHandler(router)(new Request("http://localhost/unknown"));
+    const res = await serve(router)(new Request("http://localhost/unknown"));
 
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("");
@@ -72,7 +74,7 @@ describe("RhythmRouter", () => {
       },
     );
 
-    await toFetchHandler(router)(new Request("http://localhost/users/7"));
+    await serve(router)(new Request("http://localhost/users/7"));
 
     expect(events).toEqual(["auth:before", "handler:7", "auth:after"]);
   });
@@ -88,36 +90,48 @@ describe("RhythmRouter", () => {
       },
     );
 
-    const res = await toFetchHandler(router)(new Request("http://localhost/users/7"));
+    const res = await serve(router)(new Request("http://localhost/users/7"));
 
     expect(await res.text()).toBe("user-7");
   });
 
-  test("a route match still lets the parent app's downstream middleware run via next()", async () => {
-    const router = new RhythmRouter().get("/hello", async (ctx, next) => {
-      ctx.response.body = "router";
-      await next();
-    });
+  test("registration order is execution order - use() after a route doesn't wrap that route", async () => {
+    const events: string[] = [];
+    const router = new RhythmRouter()
+      .get("/ping", (ctx) => {
+        events.push("route");
+        ctx.response.body = "ok";
+      })
+      .use(async (ctx, next) => {
+        events.push("late-middleware");
+        await next();
+      });
 
-    const app = new Rhythm<RhythmHttpContext>().register(router).use((ctx) => {
-      ctx.response.headers.set("x-app", "seen");
-    });
+    await serve(router)(new Request("http://localhost/ping"));
 
-    const res = await toFetchHandler(app)(new Request("http://localhost/hello"));
-
-    expect(await res.text()).toBe("router");
-    expect(res.headers.get("x-app")).toBe("seen");
+    expect(events).toEqual(["route"]);
   });
 
-  test("mounts into a parent Rhythm app via register(), sealed by default", async () => {
-    const router = new RhythmRouter().get("/users/:id", (ctx) => {
-      ctx.response.body = ctx.params.id;
-    });
+  test("a middleware between two routes wraps only the route registered after it", async () => {
+    const events: string[] = [];
+    const router = new RhythmRouter()
+      .get("/early", (ctx) => {
+        events.push("early");
+        ctx.response.body = "early";
+      })
+      .use(async (ctx, next) => {
+        events.push("middleware");
+        await next();
+      })
+      .get("/late", (ctx) => {
+        events.push("late");
+        ctx.response.body = "late";
+      });
 
-    const app = new Rhythm<RhythmHttpContext>().register(router);
+    await serve(router)(new Request("http://localhost/early"));
+    await serve(router)(new Request("http://localhost/late"));
 
-    const res = await toFetchHandler(app)(new Request("http://localhost/users/99"));
-    expect(await res.text()).toBe("99");
+    expect(events).toEqual(["early", "middleware", "late"]);
   });
 
   describe("prefix", () => {
@@ -126,7 +140,7 @@ describe("RhythmRouter", () => {
         ctx.response.body = ctx.params.id;
       });
 
-      const handler = toFetchHandler(router);
+      const handler = serve(router);
 
       const prefixed = await handler(new Request("http://localhost/api/users/5"));
       expect(await prefixed.text()).toBe("5");
@@ -141,30 +155,18 @@ describe("RhythmRouter", () => {
         ctx.response.body = ctx.params.id;
       });
 
-      const res = await toFetchHandler(router)(new Request("http://localhost/api/users/9"));
+      const res = await serve(router)(new Request("http://localhost/api/users/9"));
       expect(await res.text()).toBe("9");
     });
 
-    test('a thrown error tags the router as a controller, since RhythmRouter passes type: "controller" to Rhythm', async () => {
-      const router = new RhythmRouter({ name: "broken-router", prefix: "/api" }).get("/boom", () => {
-        throw new Error("kaboom");
-      });
-
-      const app = new Rhythm<RhythmHttpContext>().register(router);
-
-      await expect(toFetchHandler(app)(new Request("http://localhost/api/boom"))).rejects.toThrow(
-        'registered controller "broken-router" failed',
-      );
-    });
-
-    test("a parent router's prefix applies to a child router mounted via use(child.routes())", async () => {
-      const usersRouter = new RhythmRouter({ name: "users" }).get("/users/:id", (ctx) => {
+    test("a parent router's prefix applies to a child router mounted via use(child)", async () => {
+      const usersRouter = new RhythmRouter().get("/users/:id", (ctx) => {
         ctx.response.body = ctx.params.id;
       });
 
-      const apiRouter = new RhythmRouter({ name: "api", prefix: "/api" }).use(usersRouter.routes());
+      const apiRouter = new RhythmRouter({ prefix: "/api" }).use(usersRouter);
 
-      const handler = toFetchHandler(apiRouter);
+      const handler = serve(apiRouter);
 
       const prefixed = await handler(new Request("http://localhost/api/users/5"));
       expect(await prefixed.text()).toBe("5");
@@ -175,25 +177,25 @@ describe("RhythmRouter", () => {
     });
 
     test("prefixes compose across multiple levels of nesting", async () => {
-      const usersRouter = new RhythmRouter({ name: "users" }).get("/users/:id", (ctx) => {
+      const usersRouter = new RhythmRouter().get("/users/:id", (ctx) => {
         ctx.response.body = ctx.params.id;
       });
 
-      const v1Router = new RhythmRouter({ name: "v1", prefix: "/v1" }).use(usersRouter.routes());
-      const apiRouter = new RhythmRouter({ name: "api", prefix: "/api" }).use(v1Router.routes());
+      const v1Router = new RhythmRouter({ prefix: "/v1" }).use(usersRouter);
+      const apiRouter = new RhythmRouter({ prefix: "/api" }).use(v1Router);
 
-      const res = await toFetchHandler(apiRouter)(new Request("http://localhost/api/v1/users/7"));
+      const res = await serve(apiRouter)(new Request("http://localhost/api/v1/users/7"));
       expect(await res.text()).toBe("7");
     });
 
     test("mounting a child router doesn't mutate the child's own standalone prefix", async () => {
-      const usersRouter = new RhythmRouter({ name: "users" }).get("/users/:id", (ctx) => {
+      const usersRouter = new RhythmRouter().get("/users/:id", (ctx) => {
         ctx.response.body = ctx.params.id;
       });
 
-      new RhythmRouter({ name: "api", prefix: "/api" }).use(usersRouter.routes());
+      new RhythmRouter({ prefix: "/api" }).use(usersRouter);
 
-      const res = await toFetchHandler(usersRouter)(new Request("http://localhost/users/5"));
+      const res = await serve(usersRouter)(new Request("http://localhost/users/5"));
       expect(await res.text()).toBe("5");
     });
   });
@@ -248,12 +250,10 @@ describe("RhythmRouter", () => {
     });
   });
 
-  test("register() is disabled on a router - a controller doesn't compose other modules/controllers", () => {
+  test("a router is a controller, not a module - it exposes no register() or provide()", () => {
     const router = new RhythmRouter();
-    const other = new Rhythm<RhythmHttpContext>();
 
-    expect(() => (router as any).register(other)).toThrow(
-      "RhythmRouter is a controller and cannot register() other modules or controllers",
-    );
+    expect("register" in router).toBe(false);
+    expect("provide" in router).toBe(false);
   });
 });

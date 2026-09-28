@@ -4,9 +4,9 @@ import { RhythmCliResponse, type RhythmCliContext } from "./adapters/context";
 import { toCliHandler } from "./adapters/bun";
 import { RhythmCli } from "./rhythm-cli";
 
-// Under `bun test` the runtime provides the Bun global; under vitest on Node it
-// has to be stubbed for the adapter's non-TTY stdin path.
 vi.stubGlobal("Bun", { stdin: { stream: () => new ReadableStream<Uint8Array>() } });
+
+const host = (cli: RhythmCli<any>) => new Rhythm<RhythmCliContext>().use(cli.commands());
 
 function collect(app: Rhythm<RhythmCliContext, any, any>) {
   return async (argv: string[]) => {
@@ -24,7 +24,7 @@ describe("RhythmCli", () => {
     const cli = new RhythmCli().command("deploy :environment", (ctx) => {
       ctx.response.print(`deploying to ${ctx.args.environment}`);
     });
-    const run = collect(cli);
+    const run = collect(host(cli));
 
     const result = await run(["deploy", "production"]);
     expect(result.stdout).toBe("deploying to production");
@@ -35,7 +35,7 @@ describe("RhythmCli", () => {
     const cli = new RhythmCli().command("deploy :environment", (ctx) => {
       ctx.response.print("deployed");
     });
-    const run = collect(cli);
+    const run = collect(host(cli));
 
     const result = await run(["build"]);
     expect(result.stdout).toBe("");
@@ -56,17 +56,51 @@ describe("RhythmCli", () => {
       },
     );
 
-    await toCliHandler(cli)(["deploy", "staging"]);
+    await toCliHandler(host(cli))(["deploy", "staging"]);
     expect(events).toEqual(["auth:before", "handler:staging", "auth:after"]);
   });
 
-  test("register() is disabled on a cli - a controller doesn't compose other modules/controllers", () => {
-    const cli = new RhythmCli();
-    const other = new Rhythm<RhythmCliContext>();
+  test("registration order is execution order - use() after a command doesn't wrap that command", async () => {
+    const events: string[] = [];
+    const cli = new RhythmCli()
+      .command("greet", (ctx) => {
+        events.push("command");
+        ctx.response.print("hello");
+      })
+      .use(async (ctx, next) => {
+        events.push("late-middleware");
+        await next();
+      });
 
-    expect(() => (cli as any).register(other)).toThrow(
-      "RhythmCli is a controller and cannot register() other modules or controllers",
-    );
+    await collect(host(cli))(["greet"]);
+    expect(events).toEqual(["command"]);
+  });
+
+  test("a middleware between two commands wraps only the command registered after it", async () => {
+    const events: string[] = [];
+    const cli = new RhythmCli()
+      .command("early", () => {
+        events.push("early");
+      })
+      .use(async (ctx, next) => {
+        events.push("middleware");
+        await next();
+      })
+      .command("late", () => {
+        events.push("late");
+      });
+    const run = collect(host(cli));
+
+    await run(["early"]);
+    await run(["late"]);
+    expect(events).toEqual(["early", "middleware", "late"]);
+  });
+
+  test("a cli is a controller, not a module - it exposes no register() or provide()", () => {
+    const cli = new RhythmCli();
+
+    expect("register" in cli).toBe(false);
+    expect("provide" in cli).toBe(false);
   });
 
   describe("prefix", () => {
@@ -74,30 +108,30 @@ describe("RhythmCli", () => {
       const cli = new RhythmCli({ prefix: "remote" }).command("add :name", (ctx) => {
         ctx.response.print(ctx.args.name);
       });
-      const run = collect(cli);
+      const run = collect(host(cli));
 
       expect((await run(["remote", "add", "origin"])).stdout).toBe("origin");
       expect((await run(["add", "origin"])).stdout).toBe("");
     });
 
-    test("a parent cli's prefix applies to a child cli mounted via use(child.commands())", async () => {
-      const remoteCli = new RhythmCli({ name: "remote-cli" }).command("add :name", (ctx) => {
+    test("a parent cli's prefix applies to a child cli mounted via use(child)", async () => {
+      const remoteCli = new RhythmCli().command("add :name", (ctx) => {
         ctx.response.print(ctx.args.name);
       });
-      const gitCli = new RhythmCli({ name: "git", prefix: "remote" }).use(remoteCli.commands());
-      const run = collect(gitCli);
+      const gitCli = new RhythmCli({ prefix: "remote" }).use(remoteCli);
+      const run = collect(host(gitCli));
 
       expect((await run(["remote", "add", "origin"])).stdout).toBe("origin");
       expect((await run(["add", "origin"])).stdout).toBe("");
     });
 
     test("prefixes compose across multiple levels of nesting", async () => {
-      const remoteCli = new RhythmCli({ name: "remote" }).command("add :name", (ctx) => {
+      const remoteCli = new RhythmCli().command("add :name", (ctx) => {
         ctx.response.print(ctx.args.name);
       });
-      const gitCli = new RhythmCli({ name: "git", prefix: "git" }).use(remoteCli.commands());
-      const rootCli = new RhythmCli({ name: "root", prefix: "vcs" }).use(gitCli.commands());
-      const run = collect(rootCli);
+      const gitCli = new RhythmCli({ prefix: "git" }).use(remoteCli);
+      const rootCli = new RhythmCli({ prefix: "vcs" }).use(gitCli);
+      const run = collect(host(rootCli));
 
       expect((await run(["vcs", "git", "add", "origin"])).stdout).toBe("origin");
     });
