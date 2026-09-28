@@ -84,7 +84,7 @@ describe("register()", () => {
   });
 
   test("a module throwing is tagged with its name and preserves the original error as cause", async () => {
-    const child = new Rhythm<{}>("payments").use(() => {
+    const child = new Rhythm<{}>({ name: "payments" }).use(() => {
       throw new Error("card declined");
     });
     const app = new Rhythm<{}>().register(child);
@@ -98,9 +98,18 @@ describe("register()", () => {
     }
   });
 
+  test("options.type overrides the default \"module\" label used in the register() error", async () => {
+    const child = new Rhythm<{}>({ name: "users", type: "controller" }).use(() => {
+      throw new Error("boom");
+    });
+    const app = new Rhythm<{}>().register(child);
+
+    await expect(app.run({})).rejects.toThrow('registered controller "users" failed');
+  });
+
   test("a module can catch its own downstream errors before they reach register()", async () => {
     const events: string[] = [];
-    const child = new Rhythm<{}>("safe")
+    const child = new Rhythm<{}>({ name: "safe" })
       .use(async (ctx, next) => {
         try {
           await next();
@@ -213,7 +222,7 @@ describe("provide()", () => {
 describe("setup()/teardown()", () => {
   test("setup() cascades eagerly into registered modules", async () => {
     let childResolved = false;
-    const child = new Rhythm<{}>("child").provide(() => {
+    const child = new Rhythm<{}>({ name: "child" }).provide(() => {
       childResolved = true;
       return {};
     });
@@ -225,7 +234,7 @@ describe("setup()/teardown()", () => {
 
   test("teardown() disposes in reverse of resolution order, cascading into registered modules", async () => {
     const order: string[] = [];
-    const child = new Rhythm<{}>("child").provide(
+    const child = new Rhythm<{}>({ name: "child" }).provide(
       () => {
         order.push("open:child");
         return {};
@@ -271,5 +280,46 @@ describe("compose() caching", () => {
     await app.run({});
 
     expect(events).toEqual(["first", "first", "first", "second"]);
+  });
+});
+
+describe("middleware()", () => {
+  test("providers are merged into the same shared ctx object passed in, not a fresh one", async () => {
+    const child = new Rhythm<{}>().provide(() => ({ greeting: "hi" }));
+    const mw = child.middleware();
+
+    const ctx: Record<string, unknown> = {};
+    await mw(ctx as any, (async () => ctx) as any);
+
+    expect(ctx.greeting).toBe("hi");
+  });
+
+  test("not calling next() inside the child halts the parent's downstream middleware too", async () => {
+    const events: string[] = [];
+    const child = new Rhythm<{}>().use(() => {
+      events.push("child");
+    });
+
+    const app = new Rhythm<{}>().use(child.middleware()).use(() => {
+      events.push("parent-downstream");
+    });
+
+    await app.run({});
+    expect(events).toEqual(["child"]);
+  });
+
+  test("the child calling next() lets the parent's downstream middleware run", async () => {
+    const events: string[] = [];
+    const child = new Rhythm<{}>().use(async (ctx, next) => {
+      events.push("child");
+      await next();
+    });
+
+    const app = new Rhythm<{}>().use(child.middleware()).use(() => {
+      events.push("parent-downstream");
+    });
+
+    await app.run({});
+    expect(events).toEqual(["child", "parent-downstream"]);
   });
 });

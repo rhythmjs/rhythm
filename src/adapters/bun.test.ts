@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Rhythm } from "../core/rhythm";
-import { toFetchHandler, type RhythmHttpContext } from "./bun";
+import { toFetchHandler } from "./bun";
+import type { RhythmHttpContext } from "./context";
 
 describe("toFetchHandler()", () => {
   test("ctx.response is seeded up front and mutated directly, koa-style", async () => {

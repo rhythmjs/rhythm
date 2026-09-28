@@ -1,26 +1,5 @@
-import { RhythmMutable, type Rhythm } from "../core/rhythm";
-
-export class RhythmResponse {
-  readonly [RhythmMutable] = true;
-
-  status: number = 200;
-  statusText: string | undefined = undefined;
-  headers: Headers = new Headers();
-  body: Bun.BodyInit | null = null;
-}
-
-export interface RhythmHttpContext {
-  request: Request;
-  response: RhythmResponse;
-}
-
-function toResponse(response: RhythmResponse): Response {
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
-}
+import type { Rhythm } from "../core/rhythm";
+import { RhythmResponse, toResponse, type RhythmHttpContext } from "./context";
 
 export function toFetchHandler<TContext extends RhythmHttpContext, TProviders extends object = {}>(
   app: Rhythm<RhythmHttpContext, TContext, TProviders>,

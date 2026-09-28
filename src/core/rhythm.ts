@@ -63,21 +63,27 @@ type ProviderEntry = {
   resolved?: unknown;
 };
 
+export interface RhythmOptions {
+  name?: string;
+  type?: string;
+  [key: string]: unknown;
+}
+
 export class Rhythm<
   TInput extends object = {},
   TContext extends object = TInput,
   TProviders extends object = {},
 > {
   #middleware: Middleware<any>[] = [];
-  #name: string;
+  #options: RhythmOptions;
   #providers: ProviderEntry[] = [];
   #setupPromise: Promise<void> | null = null;
   #providedCache: Record<string, unknown> | null = null;
   #composed: ((context: TContext, next?: NextFn<TContext>) => Promise<TContext>) | null = null;
   #callbackFn: ((input: TInput) => Promise<TContext>) | null = null;
 
-  constructor(name = "anonymous") {
-    this.#name = name;
+  constructor(options: RhythmOptions = {}) {
+    this.#options = options;
   }
 
   use<TExtra extends object = {}>(fn: Middleware<TContext>): Rhythm<TInput, TContext & TExtra, TProviders> {
@@ -112,7 +118,8 @@ export class Rhythm<
       try {
         result = await module.run(ctx as unknown as TRegInput);
       } catch (cause) {
-        throw new Error(`registered module "${module.#name}" failed`, { cause });
+        const { type = "module", name = "anonymous" } = module.#options;
+        throw new Error(`registered ${type} "${name}" failed`, { cause });
       }
       await next(exportValue ? exportValue(result as DeepReadonly<TRegContext>) : ({} as TExported));
     });
@@ -164,5 +171,15 @@ export class Rhythm<
 
   run(input: TInput): Promise<TContext> {
     return this.callback()(input);
+  }
+
+  middleware(): Middleware<TContext> {
+    return async (ctx, next) => {
+      await this.setup();
+      if (!this.#composed) this.#composed = compose<TContext>(this.#middleware);
+      const context = ctx as unknown as TContext;
+      Object.assign(context, this.#providedCache);
+      await this.#composed(context, next);
+    };
   }
 }
