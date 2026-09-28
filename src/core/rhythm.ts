@@ -1,3 +1,5 @@
+export const RhythmMutable: unique symbol = Symbol("RhythmMutable");
+
 export type DeepReadonly<T> = T extends (...args: any[]) => any
   ? T
   : T extends ReadonlyArray<infer U>
@@ -6,9 +8,11 @@ export type DeepReadonly<T> = T extends (...args: any[]) => any
       ? ReadonlyMap<DeepReadonly<K>, DeepReadonly<V>>
       : T extends Set<infer U>
         ? ReadonlySet<DeepReadonly<U>>
-        : T extends object
-          ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
-          : T;
+        : T extends { readonly [RhythmMutable]: true }
+          ? T
+          : T extends object
+            ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+            : T;
 
 export type NextFn<TContext extends object> = {
   (): Promise<DeepReadonly<TContext>>;
