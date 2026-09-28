@@ -5,10 +5,12 @@
   "description": "A minimal, type-safe onion-middleware and provider composition kernel.",
   "type": "module",
   "packageManager": "bun@1.4.2",
-  "workspaces": ["packages/*", "examples/*", "apps/*"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rhythmjs/rhythm.git"
+  },
+  "workspaces": ["packages/*", "examples/*"],
   "scripts": {
-    "docs:dev": "bun run --cwd apps/docs dev",
-    "docs:build": "bun run --cwd apps/docs build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test"
   },

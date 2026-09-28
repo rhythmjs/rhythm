@@ -10,10 +10,6 @@
         "typescript": "^7.0.2",
       },
     },
-    "apps/docs": {
-      "name": "@rhythmjs/docs",
-      "version": "0.0.1",
-    },
     "examples/cli": {
       "name": "cli-example",
       "version": "0.0.1",
@@ -51,8 +47,6 @@
   },
   "packages": {
     "@rhythmjs/cli": ["@rhythmjs/cli@workspace:packages/cli"],
-
-    "@rhythmjs/docs": ["@rhythmjs/docs@workspace:apps/docs"],
 
     "@rhythmjs/rhythm": ["@rhythmjs/rhythm@workspace:packages/rhythm"],
 
