@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Rhythm } from "../core/rhythm";
+import { Rhythm } from "../../core/rhythm";
 import { toFetchHandler } from "./bun";
 import type { RhythmHttpContext } from "./context";
 

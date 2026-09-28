@@ -1,8 +1,5 @@
 import { compose, type Middleware, type NextFn } from "../core/rhythm";
 
-export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
-export type HttpMethod = (typeof HTTP_METHODS)[number];
-
 type RouteDispatch = (context: any, next?: NextFn<any>) => Promise<any>;
 
 export type MethodEntry = {
@@ -10,17 +7,17 @@ export type MethodEntry = {
   dispatch: RouteDispatch;
 };
 
-export class TreeNode {
+export class TreeNode<TMethod extends string = string> {
   path = "";
   indices = "";
-  children: TreeNode[] = [];
-  paramChild: TreeNode | null = null;
+  children: TreeNode<TMethod>[] = [];
+  paramChild: TreeNode<TMethod> | null = null;
   paramName = "";
-  methods: Map<HttpMethod, MethodEntry> | null = null;
+  methods: Map<TMethod, MethodEntry> | null = null;
 }
 
-export function createNode(): TreeNode {
-  return new TreeNode();
+export function createNode<TMethod extends string = string>(): TreeNode<TMethod> {
+  return new TreeNode<TMethod>();
 }
 
 function commonPrefixLength(a: string, b: string): number {
@@ -30,8 +27,8 @@ function commonPrefixLength(a: string, b: string): number {
   return i;
 }
 
-function splitChild(node: TreeNode, at: number): void {
-  const tail = new TreeNode();
+function splitChild<TMethod extends string>(node: TreeNode<TMethod>, at: number): void {
+  const tail = new TreeNode<TMethod>();
   tail.path = node.path.slice(at);
   tail.indices = node.indices;
   tail.children = node.children;
@@ -47,7 +44,12 @@ function splitChild(node: TreeNode, at: number): void {
   node.methods = null;
 }
 
-function insertAt(node: TreeNode, path: string, method: HttpMethod, handlers: Middleware<any>[]): void {
+function insertAt<TMethod extends string>(
+  node: TreeNode<TMethod>,
+  path: string,
+  method: TMethod,
+  handlers: Middleware<any>[],
+): void {
   if (path.length === 0) {
     if (!node.methods) node.methods = new Map();
     node.methods.set(method, { handlers, dispatch: compose(handlers) });
@@ -59,7 +61,7 @@ function insertAt(node: TreeNode, path: string, method: HttpMethod, handlers: Mi
     const name = slashIndex === -1 ? path.slice(1) : path.slice(1, slashIndex);
     const rest = slashIndex === -1 ? "" : path.slice(slashIndex);
     if (!node.paramChild) {
-      node.paramChild = new TreeNode();
+      node.paramChild = new TreeNode<TMethod>();
       node.paramChild.paramName = name;
     }
     insertAt(node.paramChild, rest, method, handlers);
@@ -80,19 +82,24 @@ function insertAt(node: TreeNode, path: string, method: HttpMethod, handlers: Mi
     return;
   }
 
-  const child = new TreeNode();
+  const child = new TreeNode<TMethod>();
   child.path = staticPart;
   node.children.push(child);
   node.indices += firstChar;
   insertAt(child, path.slice(staticPart.length), method, handlers);
 }
 
-export function insertRoute(root: TreeNode, method: HttpMethod, path: string, handlers: Middleware<any>[]): void {
+export function insertRoute<TMethod extends string>(
+  root: TreeNode<TMethod>,
+  method: TMethod,
+  path: string,
+  handlers: Middleware<any>[],
+): void {
   insertAt(root, path, method, handlers);
 }
 
-export function lookupRoute(
-  root: TreeNode,
+export function lookupRoute<TMethod extends string>(
+  root: TreeNode<TMethod>,
   method: string,
   pathname: string,
 ): { entry: MethodEntry; params: Record<string, string> } | null {
@@ -102,7 +109,7 @@ export function lookupRoute(
 
   while (path.length > 0) {
     const firstChar = path.charAt(0);
-    let matched: TreeNode | null = null;
+    let matched: TreeNode<TMethod> | null = null;
 
     for (let i = 0; i < node.children.length; i++) {
       if (node.indices.charAt(i) !== firstChar) continue;
@@ -133,7 +140,14 @@ export function lookupRoute(
   }
 
   if (!node.methods) return null;
-  const entry = node.methods.get(method as HttpMethod);
+  const entry = node.methods.get(method as TMethod);
   if (!entry) return null;
   return { entry, params };
+}
+
+export function joinPath(prefix: string, path: string): string {
+  if (!prefix) return path;
+  const trimmedPrefix = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${trimmedPrefix}${normalizedPath}`;
 }

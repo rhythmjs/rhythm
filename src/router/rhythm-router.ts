@@ -1,17 +1,13 @@
 import { Rhythm, type DeepReadonly, type Middleware, type NextFn } from "../core/rhythm";
-import type { RhythmHttpContext } from "../adapters/context";
-import { createNode, insertRoute, lookupRoute, type HttpMethod, type TreeNode } from "./radix-tree";
+import { createNode, insertRoute, joinPath, lookupRoute, type TreeNode } from "./radix-tree";
+import type { RhythmHttpContext } from "./adapters/context";
 
 export interface RhythmRouterContext {
   params: Record<string, string>;
 }
 
-function joinPath(prefix: string, path: string): string {
-  if (!prefix) return path;
-  const trimmedPrefix = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  return `${trimmedPrefix}${normalizedPath}`;
-}
+const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
+type HttpMethod = (typeof HTTP_METHODS)[number];
 
 export interface RhythmRouterOptions {
   name?: string;
@@ -42,7 +38,7 @@ export class RhythmRouter<
 > extends Rhythm<RhythmHttpContext, TContext, TProviders> {
   #prefix: string;
   #entries: Entry[] = [];
-  #tree: TreeNode = createNode();
+  #tree: TreeNode<HttpMethod> = createNode<HttpMethod>();
   #dispatchInstalled = false;
 
   constructor(options: RhythmRouterOptions = {}) {
