@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
 import { Rhythm } from "@rhythmjs/rhythm";
-import { toFetchHandler } from "./adapters/bun";
+import { toFetchHandler } from "./adapters/web-std";
 import type { RhythmHttpContext } from "./adapters/context";
 import { RhythmRouter } from "./rhythm-router";
 
@@ -93,6 +93,34 @@ describe("RhythmRouter", () => {
     const res = await serve(router)(new Request("http://localhost/users/7"));
 
     expect(await res.text()).toBe("user-7");
+  });
+
+  test("response helpers work inside route handlers end to end", async () => {
+    const router = new RhythmRouter()
+      .get("/users/:id", (ctx) => {
+        ctx.json({ id: ctx.params.id }, 201);
+      })
+      .get("/gone", (ctx) => {
+        ctx.error(410);
+      })
+      .get("/old", (ctx) => {
+        ctx.redirect("/users/1", 301);
+      });
+
+    const handler = serve(router);
+
+    const json = await handler(new Request("http://localhost/users/7"));
+    expect(json.status).toBe(201);
+    expect(json.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(await json.json()).toEqual({ id: "7" });
+
+    const gone = await handler(new Request("http://localhost/gone"));
+    expect(gone.status).toBe(410);
+    expect(await gone.text()).toBe("Gone");
+
+    const redirect = await handler(new Request("http://localhost/old", { redirect: "manual" }));
+    expect(redirect.status).toBe(301);
+    expect(redirect.headers.get("location")).toBe("/users/1");
   });
 
   test("registration order is execution order - use() after a route doesn't wrap that route", async () => {

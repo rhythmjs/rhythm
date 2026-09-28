@@ -1,1 +1,1 @@
-export { toFetchHandler } from "./bun";
+export { toFetchHandler } from "./web-std";

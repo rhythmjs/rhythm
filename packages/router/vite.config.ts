@@ -5,6 +5,7 @@ export default defineConfig({
     entry: {
       "rhythm-router": "src/rhythm-router.ts",
       "radix-tree": "src/radix-tree.ts",
+      "adapters/web-std": "src/adapters/web-std.ts",
       "adapters/bun": "src/adapters/bun.ts",
       "adapters/deno": "src/adapters/deno.ts",
       "adapters/node": "src/adapters/node.ts",

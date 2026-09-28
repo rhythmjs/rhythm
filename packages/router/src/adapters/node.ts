@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import type { Rhythm } from "@rhythmjs/rhythm";
-import { RhythmResponse, toResponse, type RhythmHttpContext } from "./context";
+import { createHttpContext, toResponse, type RhythmHttpContext } from "./context";
 
 const DEFAULT_BODY_LIMIT = 1024 * 1024;
 
@@ -120,7 +120,7 @@ export function toNodeHandler<TContext extends RhythmHttpContext, TProviders ext
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
       const request = await toWebRequest(req, bodyLimit);
-      const ctx = await run({ request, response: new RhythmResponse() });
+      const ctx = await run(createHttpContext(request));
       await writeWebResponse(toResponse(ctx.response), res);
     } catch (err) {
       if (!(err instanceof RhythmBodyTooLargeError)) console.error(err);

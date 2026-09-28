@@ -23,6 +23,10 @@
       "types": "./dist/radix-tree.d.ts",
       "default": "./dist/radix-tree.js"
     },
+    "./adapters/web-std": {
+      "types": "./dist/adapters/web-std.d.ts",
+      "default": "./dist/adapters/web-std.js"
+    },
     "./adapters/bun": {
       "types": "./dist/adapters/bun.d.ts",
       "default": "./dist/adapters/bun.js"

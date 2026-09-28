@@ -18,15 +18,13 @@ const usersRouter = new RhythmRouter({ prefix: "/users" }).get<{ user: User }>(
   async (ctx, next) => {
     const user = users[ctx.params.id];
     if (!user) {
-      ctx.response.status = 404;
-      ctx.response.body = "Not Found";
+      ctx.error(404);
       return;
     }
     await next({ user });
   },
   (ctx) => {
-    ctx.response.headers.set("content-type", "application/json");
-    ctx.response.body = JSON.stringify(ctx.user);
+    ctx.json(ctx.user);
   },
 );
 
@@ -43,14 +41,11 @@ const app = new Rhythm<RhythmHttpContext>({ name: "app" })
   })
   .use(apiRouter.routes())
   .use(async (ctx) => {
-    ctx.response.headers.set("content-type", "text/plain");
     if (new URL(ctx.request.url).pathname === "/") {
-      ctx.response.status = 200;
-      ctx.response.body = "Welcome to the API!";
+      ctx.text("Welcome to the API!");
       return;
     }
-    ctx.response.status = 404;
-    ctx.response.body = "Not Found";
+    ctx.error(404);
   });
 
 const server = Bun.serve({ port: 3000, fetch: toFetchHandler(app) });
