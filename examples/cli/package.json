@@ -3,15 +3,13 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "scripts": {
-    "typecheck": "tsc --noEmit"
-  },
   "dependencies": {
     "@rhythmjs/cli": "workspace:*",
     "@rhythmjs/rhythm": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vite-plus": "^1.0.0"
   }
 }

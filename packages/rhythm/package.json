@@ -23,11 +23,6 @@
   "publishConfig": {
     "access": "public"
   },
-  "scripts": {
-    "build": "vp pack",
-    "typecheck": "tsc --noEmit",
-    "test": "vp test"
-  },
   "devDependencies": {
     "@types/node": "^26.6.3",
     "typescript": "^7.0.2",

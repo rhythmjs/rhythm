@@ -12,17 +12,15 @@
   },
   "type": "module",
   "scripts": {
-    "build": "turbo run build",
-    "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
-    "dev": "turbo run dev",
+    "build": "vp run -r build",
+    "typecheck": "vp run -r typecheck",
+    "test": "vp run -r test",
     "lint": "vp lint",
     "fmt": "vp fmt",
     "fmt:check": "vp fmt --check",
     "check": "vp check"
   },
   "devDependencies": {
-    "turbo": "^2.5.0",
     "typescript": "^7.0.2",
     "vite-plus": "^1.0.0"
   },
