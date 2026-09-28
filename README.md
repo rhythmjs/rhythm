@@ -11,6 +11,15 @@ A minimal, type-safe composition kernel: onion-style middleware, lifecycle-manag
 
 See each package's own README for its concepts, usage examples, and API.
 
+## Documentation site
+
+The framework-free documentation site lives in [`apps/docs`](./apps/docs). It includes guides for the core, router, CLI, lifecycle, and runtime adapters, plus an API reference.
+
+```sh
+bun run docs:dev     # http://localhost:3001
+bun run docs:build   # static output in apps/docs/dist
+```
+
 ## Development
 
 This is a Turborepo-managed Bun workspace.
