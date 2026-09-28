@@ -1,4 +1,4 @@
-import { Pipeline } from "./core/pipeline";
+import { Rhythm } from "./core/rhythm";
 
 interface RequestInput {
   requestId: string;
@@ -11,7 +11,7 @@ interface User {
 }
 
 // Sealed: pure side effect, nothing crosses back to the parent.
-const auditModule = new Pipeline<{ requestId: string }>("audit").use(async (ctx, next) => {
+const auditModule = new Rhythm<{ requestId: string }>("audit").use(async (ctx, next) => {
   console.log(`[audit] request ${ctx.requestId} received`);
   await next({ auditedAt: Date.now() });
 });
@@ -35,13 +35,13 @@ function createUserDb(secret: string) {
   };
 }
 
-// Dynamic module: a function wrapping the Pipeline build, parameterized at
+// Dynamic module: a function wrapping the Rhythm build, parameterized at
 // the registration site. Building it does no work - .provide()'s factory
 // only runs later, at setup()/first run(), so calling forRoot() here is safe
 // even before the app's real config is ready.
 const AuthModule = {
   forRoot(options: { secret: string }) {
-    return new Pipeline<{ userId: string }>("auth")
+    return new Rhythm<{ userId: string }>("auth")
       .provide(
         () => ({ db: createUserDb(options.secret) }),
         (value) => value.db.close(),
@@ -56,7 +56,7 @@ console.log("building authModule via forRoot()");
 const authModule = AuthModule.forRoot({ secret: "prod-secret" });
 console.log("authModule built - db not connected yet");
 
-const app = new Pipeline<RequestInput>()
+const app = new Rhythm<RequestInput>()
   .provide(() => ({ config: { serviceName: "greeter" } }))
   .provide((deps) => ({
     logger: { info: (msg: string) => console.log(`[${deps.config.serviceName}] ${msg}`) },

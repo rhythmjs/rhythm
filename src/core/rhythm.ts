@@ -59,7 +59,7 @@ type ProviderEntry = {
   resolved?: unknown;
 };
 
-export class Pipeline<
+export class Rhythm<
   TInput extends object = {},
   TContext extends object = TInput,
   TProviders extends object = {},
@@ -76,26 +76,26 @@ export class Pipeline<
     this.#name = name;
   }
 
-  use<TExtra extends object = {}>(fn: Middleware<TContext>): Pipeline<TInput, TContext & TExtra, TProviders> {
+  use<TExtra extends object = {}>(fn: Middleware<TContext>): Rhythm<TInput, TContext & TExtra, TProviders> {
     if (typeof fn !== "function") throw new TypeError("middleware must be a function!");
     this.#middleware.push(fn);
     this.#invalidateCallback();
-    return this as unknown as Pipeline<TInput, TContext & TExtra, TProviders>;
+    return this as unknown as Rhythm<TInput, TContext & TExtra, TProviders>;
   }
 
   provide<TValue extends object>(
     factory: (deps: DeepReadonly<TProviders>) => TValue | Promise<TValue>,
     dispose?: (value: TValue) => void | Promise<void>,
-  ): Pipeline<TInput, TContext & TValue, TProviders & TValue> {
+  ): Rhythm<TInput, TContext & TValue, TProviders & TValue> {
     this.#providers.push({ factory, dispose });
-    return this as unknown as Pipeline<TInput, TContext & TValue, TProviders & TValue>;
+    return this as unknown as Rhythm<TInput, TContext & TValue, TProviders & TValue>;
   }
 
   register<TRegInput extends object, TRegContext extends object, TExported extends object = {}>(
-    other: Pipeline<TRegInput, TRegContext, any> & (TContext extends TRegInput ? unknown : never),
+    other: Rhythm<TRegInput, TRegContext, any> & (TContext extends TRegInput ? unknown : never),
     exportValue?: (result: DeepReadonly<TRegContext>) => TExported,
-  ): Pipeline<TInput, TContext & TExported, TProviders> {
-    const module = other as Pipeline<TRegInput, TRegContext, any>;
+  ): Rhythm<TInput, TContext & TExported, TProviders> {
+    const module = other as Rhythm<TRegInput, TRegContext, any>;
     this.#providers.push({
       factory: async () => {
         await module.setup();
@@ -113,7 +113,7 @@ export class Pipeline<
       await next(exportValue ? exportValue(result as DeepReadonly<TRegContext>) : ({} as TExported));
     });
     this.#invalidateCallback();
-    return this as unknown as Pipeline<TInput, TContext & TExported, TProviders>;
+    return this as unknown as Rhythm<TInput, TContext & TExported, TProviders>;
   }
 
   #invalidateCallback(): void {
