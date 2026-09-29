@@ -2,7 +2,7 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   pack: {
-    entry: { rhythm: "src/rhythm.ts" },
+    entry: { rhythm: "src/rhythm.ts", compose: "src/compose.ts", types: "src/types.ts" },
     format: "esm",
     dts: true,
     fixedExtension: false,

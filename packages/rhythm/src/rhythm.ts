@@ -1,65 +1,5 @@
-export const RhythmMutable: unique symbol = Symbol("RhythmMutable");
-
-export type DeepReadonly<T> = T extends (...args: any[]) => any
-  ? T
-  : T extends ReadonlyArray<infer U>
-    ? readonly DeepReadonly<U>[]
-    : T extends Map<infer K, infer V>
-      ? ReadonlyMap<DeepReadonly<K>, DeepReadonly<V>>
-      : T extends Set<infer U>
-        ? ReadonlySet<DeepReadonly<U>>
-        : T extends { readonly [RhythmMutable]: true }
-          ? T
-          : T extends object
-            ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
-            : T;
-
-export type OmitHashKeys<T> = {
-  [K in keyof T as K extends `#${string}` ? never : K]: T[K];
-};
-
-export type NextFn<TContext extends object> = {
-  (): Promise<DeepReadonly<TContext>>;
-  <TExtra extends object>(extra: TExtra): Promise<DeepReadonly<TContext & TExtra>>;
-};
-
-export type Middleware<TContext extends object> = (
-  ctx: DeepReadonly<TContext>,
-  next: NextFn<TContext>,
-) => Promise<void> | void;
-
-export function compose<TContext extends object>(middleware: Middleware<TContext>[]) {
-  if (!Array.isArray(middleware)) throw new TypeError("Middleware stack must be an array!");
-  for (const fn of middleware) {
-    if (typeof fn !== "function") throw new TypeError("Middleware must be composed of functions!");
-  }
-
-  return function (context: TContext, next?: NextFn<TContext>): Promise<TContext> {
-    let index = -1;
-
-    return dispatch(0);
-
-    function dispatch(i: number): Promise<TContext> {
-      if (i <= index) return Promise.reject(new Error("next() called multiple times"));
-      index = i;
-
-      const fn = i === middleware.length ? next : middleware[i];
-      if (!fn) return Promise.resolve(context);
-
-      const dispatchNext = ((extra?: object) => {
-        if (extra) Object.assign(context, extra);
-        return dispatch(i + 1);
-      }) as NextFn<TContext>;
-
-      try {
-        const call = fn as (ctx: TContext, next: NextFn<TContext>) => Promise<void> | void;
-        return Promise.resolve(call(context, dispatchNext)).then(() => context);
-      } catch (err) {
-        return Promise.reject(err);
-      }
-    }
-  };
-}
+import { compose } from "./compose";
+import type { DeepReadonly, Middleware, OmitHashKeys } from "./types";
 
 type ProviderEntry = {
   factory: (deps: any) => unknown;
@@ -78,8 +18,6 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
   #options: RhythmOptions;
   #providers: ProviderEntry[] = [];
   #setupPromise: Promise<void> | null = null;
-  #composed: ((context: TContext, next?: NextFn<TContext>) => Promise<TContext>) | null = null;
-  #callbackFn: ((input: TInput) => Promise<TContext>) | null = null;
 
   constructor(options: RhythmOptions = {}) {
     this.#options = options;
@@ -88,7 +26,6 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
   use<TExtra extends object = {}>(fn: Middleware<TContext>): Rhythm<TInput, TContext & TExtra, TProviders> {
     if (typeof fn !== "function") throw new TypeError("middleware must be a function!");
     this.#middleware.push(fn);
-    this.#invalidateCallback();
     return this as unknown as Rhythm<TInput, TContext & TExtra, TProviders>;
   }
 
@@ -105,7 +42,6 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
       }
       await next(exported);
     });
-    this.#invalidateCallback();
     return this as unknown as Rhythm<TInput, TContext & OmitHashKeys<TValue>, TProviders & OmitHashKeys<TValue>>;
   }
 
@@ -131,13 +67,7 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
       }
       await next(exportValue ? exportValue(result as DeepReadonly<TRegContext>) : ({} as TExported));
     });
-    this.#invalidateCallback();
     return this as unknown as Rhythm<TInput, TContext & TExported, TProviders>;
-  }
-
-  #invalidateCallback(): void {
-    this.#composed = null;
-    this.#callbackFn = null;
   }
 
   setup(): Promise<void> {
@@ -162,20 +92,19 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
 
   async teardown(): Promise<void> {
     for (const entry of [...this.#providers].reverse()) {
+      if (entry.resolved === undefined) continue;
       await entry.dispose?.(entry.resolved);
+      entry.resolved = undefined;
     }
+    this.#setupPromise = null;
   }
 
   callback(): (input: TInput) => Promise<TContext> {
-    if (!this.#callbackFn) {
-      if (!this.#composed) this.#composed = compose<TContext>(this.#middleware);
-      const fn = this.#composed;
-      this.#callbackFn = async (input: TInput) => {
-        await this.setup();
-        return fn({ ...input } as unknown as TContext);
-      };
-    }
-    return this.#callbackFn;
+    const fn = compose<TContext>([...this.#middleware]);
+    return async (input: TInput) => {
+      await this.setup();
+      return fn({ ...input } as unknown as TContext);
+    };
   }
 
   run(input: TInput): Promise<TContext> {
@@ -183,10 +112,10 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
   }
 
   middleware(): Middleware<TContext> {
+    const fn = compose<TContext>([...this.#middleware]);
     return async (ctx, next) => {
       await this.setup();
-      if (!this.#composed) this.#composed = compose<TContext>(this.#middleware);
-      await this.#composed(ctx as unknown as TContext, next);
+      await fn(ctx as unknown as TContext, next);
     };
   }
 }

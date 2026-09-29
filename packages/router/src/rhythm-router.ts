@@ -1,4 +1,5 @@
-import { compose, type Middleware, type NextFn } from "@rhythmjs/rhythm";
+import { compose } from "@rhythmjs/rhythm/compose";
+import type { Middleware, NextFn } from "@rhythmjs/rhythm/types";
 import { createNode, insertRoute, joinPath, lookupRoute, type TreeNode } from "./radix-tree";
 import type { RhythmHttpContext } from "./adapters/context";
 

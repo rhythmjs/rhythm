@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
-import { RhythmMutable } from "@rhythmjs/rhythm";
+import { RhythmMutable } from "@rhythmjs/rhythm/types";
 import { createHttpContext, RhythmResponse, toResponse } from "./context";
 
 describe("RhythmResponse", () => {

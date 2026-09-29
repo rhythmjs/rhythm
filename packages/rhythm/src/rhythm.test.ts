@@ -251,6 +251,57 @@ describe("provide()", () => {
     expect(seen).toEqual([undefined, 42]);
   });
 
+  test("next(extra) is positional too - middleware registered before it doesn't see the value on the way down", async () => {
+    const seen: unknown[] = [];
+    const app = new Rhythm<{}>()
+      .use(async (ctx, next) => {
+        seen.push((ctx as Record<string, unknown>).user);
+        await next();
+      })
+      .use<{ user: string }>(async (ctx, next) => {
+        await next({ user: "Alice" });
+      })
+      .use((ctx) => {
+        seen.push(ctx.user);
+      });
+
+    await app.run({});
+    expect(seen).toEqual([undefined, "Alice"]);
+  });
+
+  test("downward visibility is strictly sequential; upward (after next()) the shared context exposes everything", async () => {
+    const seen: [string, unknown, unknown][] = [];
+    const record = (label: string, ctx: object) => {
+      const c = ctx as Record<string, unknown>;
+      seen.push([label, c.fromUse, c.fromProvide]);
+    };
+
+    const app = new Rhythm<{}>()
+      .use(async (ctx, next) => {
+        record("mw1:down", ctx);
+        await next();
+        record("mw1:up", ctx);
+      })
+      .provide(() => ({ fromProvide: "db" }))
+      .use<{ fromUse: string }>(async (ctx, next) => {
+        record("mw2:down", ctx);
+        await next({ fromUse: "user" });
+        record("mw2:up", ctx);
+      })
+      .use((ctx) => {
+        record("mw3:down", ctx);
+      });
+
+    await app.run({});
+    expect(seen).toEqual([
+      ["mw1:down", undefined, undefined],
+      ["mw2:down", undefined, "db"],
+      ["mw3:down", "user", "db"],
+      ["mw2:up", "user", "db"],
+      ["mw1:up", "user", "db"],
+    ]);
+  });
+
   test("a plain key (no # prefix) is unaffected and reaches context as before", async () => {
     const app = new Rhythm<{}>()
       .provide(() => ({ value: 1, extra: "x" }))
@@ -304,6 +355,73 @@ describe("setup()/teardown()", () => {
     await app.teardown();
 
     expect(order).toEqual(["open:parent", "open:child", "close:child", "close:parent"]);
+  });
+
+  test("run() after teardown() re-resolves providers instead of serving disposed ones (regression)", async () => {
+    let opens = 0;
+    const app = new Rhythm<{}>().provide(() => {
+      opens++;
+      return { value: opens };
+    });
+
+    const first = await app.run({});
+    expect(first.value).toBe(1);
+
+    await app.teardown();
+
+    const second = await app.run({});
+    expect(opens).toBe(2);
+    expect(second.value).toBe(2);
+  });
+
+  test("setup()/teardown() cycles re-open and dispose the fresh value each time", async () => {
+    const events: string[] = [];
+    let n = 0;
+    const app = new Rhythm<{}>().provide(
+      () => {
+        n++;
+        events.push(`open:${n}`);
+        return { id: n };
+      },
+      (value: { id: number }) => {
+        events.push(`close:${value.id}`);
+      },
+    );
+
+    await app.setup();
+    await app.teardown();
+    await app.setup();
+    await app.teardown();
+
+    expect(events).toEqual(["open:1", "close:1", "open:2", "close:2"]);
+  });
+
+  test("teardown() without setup() does not call dispose", async () => {
+    let disposed = false;
+    const app = new Rhythm<{}>().provide(
+      () => ({ value: 1 }),
+      () => {
+        disposed = true;
+      },
+    );
+
+    await app.teardown();
+    expect(disposed).toBe(false);
+  });
+
+  test("teardown() twice only disposes once", async () => {
+    let disposals = 0;
+    const app = new Rhythm<{}>().provide(
+      () => ({ value: 1 }),
+      () => {
+        disposals++;
+      },
+    );
+
+    await app.setup();
+    await app.teardown();
+    await app.teardown();
+    expect(disposals).toBe(1);
   });
 });
 

@@ -19,6 +19,14 @@
       "types": "./dist/rhythm.d.ts",
       "default": "./dist/rhythm.js"
     },
+    "./compose": {
+      "types": "./dist/compose.d.ts",
+      "default": "./dist/compose.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "default": "./dist/types.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
