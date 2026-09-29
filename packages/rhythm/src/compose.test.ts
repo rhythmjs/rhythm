@@ -37,17 +37,21 @@ describe("compose()", () => {
     expect(order).toEqual(["a:before", "b:before", "c", "b:after", "a:after"]);
   });
 
-  test("next(extra) merges into the shared context object in place", async () => {
-    const fn = compose<{ user?: string }>([
+  test("next() takes no arguments - every middleware shares the same context object", async () => {
+    const fn = compose<{ seen: string[] }>([
       async (ctx, next) => {
-        await next({ user: "Alice" });
+        const downstream = await next();
+        expect(downstream).toBe(ctx);
+      },
+      (ctx) => {
+        ctx.seen.push("b");
       },
     ]);
 
-    const ctx: { user?: string } = {};
+    const ctx = { seen: ["a"] };
     const result = await fn(ctx);
     expect(result).toBe(ctx);
-    expect(ctx.user).toBe("Alice");
+    expect(ctx.seen).toEqual(["a", "b"]);
   });
 
   test("not calling next() short-circuits the rest of the stack", async () => {

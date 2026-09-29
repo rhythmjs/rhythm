@@ -1,5 +1,3 @@
-import { RhythmMutable } from "@rhythmjs/rhythm/types";
-
 export type RhythmResponseBody =
   | string
   | ArrayBuffer
@@ -11,8 +9,6 @@ export type RhythmResponseBody =
   | null;
 
 export class RhythmResponse {
-  readonly [RhythmMutable] = true;
-
   status: number = 200;
   statusText: string | undefined = undefined;
   headers: Headers = new Headers();
@@ -20,8 +16,8 @@ export class RhythmResponse {
 }
 
 export interface RhythmHttpContext {
-  request: Request;
-  response: RhythmResponse;
+  readonly request: Request;
+  readonly response: RhythmResponse;
   json(data: unknown, status?: number): void;
   text(body: string, status?: number): void;
   html(body: string, status?: number): void;

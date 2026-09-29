@@ -13,20 +13,14 @@ const users: Record<string, User> = {
   u2: { id: "u2", name: "Bob" },
 };
 
-const usersRouter = new RhythmRouter({ prefix: "/users" }).get<{ user: User }>(
-  "/:id",
-  async (ctx, next) => {
-    const user = users[ctx.params.id];
-    if (!user) {
-      ctx.error(404);
-      return;
-    }
-    await next({ user });
-  },
-  (ctx) => {
-    ctx.json(ctx.user);
-  },
-);
+const usersRouter = new RhythmRouter({ prefix: "/users" }).get("/:id", (ctx) => {
+  const user = users[ctx.params.id];
+  if (!user) {
+    ctx.error(404);
+    return;
+  }
+  ctx.json(user);
+});
 
 const apiRouter = new RhythmRouter({ prefix: "/api" }).use(usersRouter);
 

@@ -79,20 +79,26 @@ describe("RhythmRouter", () => {
     expect(events).toEqual(["auth:before", "handler:7", "auth:after"]);
   });
 
-  test("a route middleware extends the context for later handlers via next(extra)", async () => {
-    const router = new RhythmRouter().get<{ user?: { name: string } }>(
+  test("a route middleware can guard without extending - next() is pure koa style", async () => {
+    const router = new RhythmRouter().get(
       "/users/:id",
       async (ctx, next) => {
-        await next({ user: { name: `user-${ctx.params.id}` } });
+        if (ctx.params.id === "0") {
+          ctx.response.status = 403;
+          return;
+        }
+        await next();
       },
       (ctx) => {
-        ctx.response.body = ctx.user?.name ?? "missing";
+        ctx.response.body = `user-${ctx.params.id}`;
       },
     );
 
     const res = await serve(router)(new Request("http://localhost/users/7"));
-
     expect(await res.text()).toBe("user-7");
+
+    const denied = await serve(router)(new Request("http://localhost/users/0"));
+    expect(denied.status).toBe(403);
   });
 
   test("response helpers work inside route handlers end to end", async () => {

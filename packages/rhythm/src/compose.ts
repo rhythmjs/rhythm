@@ -18,10 +18,7 @@ export function compose<TContext extends object>(middleware: Middleware<TContext
       const fn = i === middleware.length ? next : middleware[i];
       if (!fn) return Promise.resolve(context);
 
-      const dispatchNext = ((extra?: object) => {
-        if (extra) Object.assign(context, extra);
-        return dispatch(i + 1);
-      }) as NextFn<TContext>;
+      const dispatchNext: NextFn<TContext> = () => dispatch(i + 1);
 
       try {
         const call = fn as (ctx: TContext, next: NextFn<TContext>) => Promise<void> | void;

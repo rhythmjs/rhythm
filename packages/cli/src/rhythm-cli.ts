@@ -4,7 +4,7 @@ import type { RhythmCliContext } from "./adapters/context";
 import { parseArgv } from "./argv";
 
 export interface RhythmCliCommandContext {
-  args: Record<string, string>;
+  readonly args: Readonly<Record<string, string>>;
 }
 
 function toSegments(command: string): string[] {

@@ -1,5 +1,5 @@
 import { compose } from "./compose";
-import type { DeepReadonly, Middleware, OmitHashKeys } from "./types";
+import type { DeriveMiddleware, Middleware, OmitHashKeys } from "./types";
 
 type ProviderEntry = {
   factory: (deps: any) => unknown;
@@ -13,6 +13,26 @@ export interface RhythmOptions {
   [key: string]: unknown;
 }
 
+function publicEntries(value: object): Record<string, unknown> {
+  const exported: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value)) {
+    if (!key.startsWith("#")) exported[key] = val;
+  }
+  return exported;
+}
+
+export function derive<TContext extends object, TExtra extends object>(
+  fn: (ctx: TContext) => TExtra | Promise<TExtra>,
+): DeriveMiddleware<TContext, OmitHashKeys<TExtra>> {
+  if (typeof fn !== "function") throw new TypeError("derive factory must be a function!");
+  const middleware: Middleware<TContext> = async (ctx, next) => {
+    const value = await fn(ctx);
+    Object.assign(ctx, publicEntries(value as object));
+    await next();
+  };
+  return middleware as DeriveMiddleware<TContext, OmitHashKeys<TExtra>>;
+}
+
 export class Rhythm<TInput extends object = {}, TContext extends object = TInput, TProviders extends object = {}> {
   #middleware: Middleware<any>[] = [];
   #options: RhythmOptions;
@@ -23,31 +43,30 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
     this.#options = options;
   }
 
-  use<TExtra extends object = {}>(fn: Middleware<TContext>): Rhythm<TInput, TContext & TExtra, TProviders> {
+  use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): Rhythm<TInput, TContext & TExtra, TProviders>;
+  use(fn: Middleware<TContext>): this;
+  use(fn: Middleware<TContext>): any {
     if (typeof fn !== "function") throw new TypeError("middleware must be a function!");
     this.#middleware.push(fn);
-    return this as unknown as Rhythm<TInput, TContext & TExtra, TProviders>;
+    return this;
   }
 
   provide<TValue extends object>(
-    factory: (deps: DeepReadonly<TProviders>) => TValue | Promise<TValue>,
+    factory: (deps: TProviders) => TValue | Promise<TValue>,
     dispose?: (value: TValue) => void | Promise<void>,
   ): Rhythm<TInput, TContext & OmitHashKeys<TValue>, TProviders & OmitHashKeys<TValue>> {
     const entry: ProviderEntry = { factory, dispose };
     this.#providers.push(entry);
     this.#middleware.push(async (ctx, next) => {
-      const exported: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(entry.resolved as object)) {
-        if (!key.startsWith("#")) exported[key] = value;
-      }
-      await next(exported);
+      Object.assign(ctx, publicEntries(entry.resolved as object));
+      await next();
     });
     return this as unknown as Rhythm<TInput, TContext & OmitHashKeys<TValue>, TProviders & OmitHashKeys<TValue>>;
   }
 
   register<TRegInput extends object, TRegContext extends object, TExported extends object = {}>(
     other: Rhythm<TRegInput, TRegContext, any> & (TContext extends TRegInput ? unknown : never),
-    exportValue?: (result: DeepReadonly<TRegContext>) => TExported,
+    exportValue?: (result: TRegContext) => TExported,
   ): Rhythm<TInput, TContext & TExported, TProviders> {
     const module = other as Rhythm<TRegInput, TRegContext, any>;
     this.#providers.push({
@@ -65,7 +84,8 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
         const { type = "module", name = "anonymous" } = module.#options;
         throw new Error(`registered ${type} "${name}" failed`, { cause });
       }
-      await next(exportValue ? exportValue(result as DeepReadonly<TRegContext>) : ({} as TExported));
+      if (exportValue) Object.assign(ctx, exportValue(result));
+      await next();
     });
     return this as unknown as Rhythm<TInput, TContext & TExported, TProviders>;
   }
@@ -84,9 +104,7 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
     const resolved: Record<string, unknown> = {};
     for (const entry of this.#providers) {
       entry.resolved = await entry.factory(resolved);
-      for (const [key, value] of Object.entries(entry.resolved as object)) {
-        if (!key.startsWith("#")) resolved[key] = value;
-      }
+      Object.assign(resolved, publicEntries(entry.resolved as object));
     }
   }
 

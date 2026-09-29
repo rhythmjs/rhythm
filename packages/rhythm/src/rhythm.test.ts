@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
-import { Rhythm } from "./rhythm";
+import { derive, Rhythm } from "./rhythm";
 
 describe("onion middleware", () => {
   test("runs before/after next() in onion order", async () => {
@@ -23,11 +23,9 @@ describe("onion middleware", () => {
     expect(order).toEqual(["a:before", "b:before", "c", "b:after", "a:after"]);
   });
 
-  test("next(extra) merges into context for downstream middleware and the final result", async () => {
+  test("next() is pure koa style - context extension happens through derive(), not next(extra)", async () => {
     const app = new Rhythm<{}>()
-      .use<{ user: string }>(async (ctx, next) => {
-        await next({ user: "Alice" });
-      })
+      .use(derive(() => ({ user: "Alice" })))
       .use((ctx) => {
         expect(ctx.user).toBe("Alice");
       });
@@ -53,9 +51,7 @@ describe("onion middleware", () => {
 
 describe("register()", () => {
   test("a module's own context extension stays isolated by default", async () => {
-    const child = new Rhythm<{}>().use<{ secret: string }>(async (ctx, next) => {
-      await next({ secret: "hidden" });
-    });
+    const child = new Rhythm<{}>().use(derive(() => ({ secret: "hidden" })));
 
     let seen: unknown;
     const app = new Rhythm<{}>().register(child).use((ctx) => {
@@ -67,9 +63,7 @@ describe("register()", () => {
   });
 
   test("register(module, exportValue) opts in to promoting specific fields", async () => {
-    const child = new Rhythm<{}>().use<{ secret: string }>(async (ctx, next) => {
-      await next({ secret: "hidden" });
-    });
+    const child = new Rhythm<{}>().use(derive(() => ({ secret: "hidden" })));
 
     const app = new Rhythm<{}>()
       .register(child, (result) => ({ secret: result.secret }))
@@ -128,9 +122,7 @@ describe("register()", () => {
   });
 
   test.skip("type system: a non-exported field is not visible on the parent's context", () => {
-    const child = new Rhythm<{}>().use<{ secret: string }>(async (ctx, next) => {
-      await next({ secret: "hidden" });
-    });
+    const child = new Rhythm<{}>().use(derive(() => ({ secret: "hidden" })));
     new Rhythm<{}>().register(child).use((ctx) => {
       // @ts-expect-error default register() stays sealed - `secret` must not be visible without exportValue
       return ctx.secret;
@@ -146,12 +138,81 @@ describe("register()", () => {
   });
 });
 
-describe("ctx is DeepReadonly", () => {
-  test.skip("type system: direct mutation of ctx is a type error", () => {
-    new Rhythm<{ user: { name: string } }>().use((ctx) => {
-      // @ts-expect-error ctx is DeepReadonly - direct mutation must be a type error
+describe("ctx is mutable, koa-style", () => {
+  test("middleware mutates declared context fields directly, fully typed", async () => {
+    const app = new Rhythm<{ user: { name: string } }>().use(async (ctx, next) => {
       ctx.user.name = "mutated";
+      await next();
     });
+
+    const result = await app.run({ user: { name: "original" } });
+    expect(result.user.name).toBe("mutated");
+  });
+});
+
+describe("derive()", () => {
+  test("an async factory's return extends the context for downstream middleware", async () => {
+    const app = new Rhythm<{ token: string }>()
+      .use(derive(async (ctx) => ({ user: `user-of-${ctx.token}` })))
+      .use((ctx) => {
+        expect(ctx.user).toBe("user-of-t1");
+      });
+
+    const result = await app.run({ token: "t1" });
+    expect(result.user).toBe("user-of-t1");
+  });
+
+  test("derive() is positional - middleware registered before it doesn't see the value on the way down", async () => {
+    const seen: unknown[] = [];
+    const app = new Rhythm<{}>()
+      .use(async (ctx, next) => {
+        seen.push((ctx as Record<string, unknown>).user);
+        await next();
+      })
+      .use(derive(() => ({ user: "Alice" })))
+      .use((ctx) => {
+        seen.push(ctx.user);
+      });
+
+    await app.run({});
+    expect(seen).toEqual([undefined, "Alice"]);
+  });
+
+  test("keys prefixed with # are stripped, matching provide()'s convention", async () => {
+    const app = new Rhythm<{}>()
+      .use(derive(() => ({ user: "Alice", "#raw": "internal" })))
+      .use((ctx) => {
+        expect((ctx as any)["#raw"]).toBeUndefined();
+        expect(ctx.user).toBe("Alice");
+      });
+
+    const result = await app.run({});
+    expect((result as any)["#raw"]).toBeUndefined();
+  });
+
+  test("a throwing derive short-circuits downstream and is catchable by an earlier use()", async () => {
+    const events: string[] = [];
+    const app = new Rhythm<{}>()
+      .use(async (ctx, next) => {
+        try {
+          await next();
+        } catch (err) {
+          events.push(`caught: ${(err as Error).message}`);
+        }
+      })
+      .use(derive(() => {
+        throw new Error("invalid token");
+      }))
+      .use(() => {
+        events.push("unreached");
+      });
+
+    await app.run({});
+    expect(events).toEqual(["caught: invalid token"]);
+  });
+
+  test("derive() rejects a non-function immediately, before use()", () => {
+    expect(() => derive(undefined as any)).toThrow("derive factory must be a function!");
   });
 });
 
@@ -251,29 +312,11 @@ describe("provide()", () => {
     expect(seen).toEqual([undefined, 42]);
   });
 
-  test("next(extra) is positional too - middleware registered before it doesn't see the value on the way down", async () => {
-    const seen: unknown[] = [];
-    const app = new Rhythm<{}>()
-      .use(async (ctx, next) => {
-        seen.push((ctx as Record<string, unknown>).user);
-        await next();
-      })
-      .use<{ user: string }>(async (ctx, next) => {
-        await next({ user: "Alice" });
-      })
-      .use((ctx) => {
-        seen.push(ctx.user);
-      });
-
-    await app.run({});
-    expect(seen).toEqual([undefined, "Alice"]);
-  });
-
   test("downward visibility is strictly sequential; upward (after next()) the shared context exposes everything", async () => {
     const seen: [string, unknown, unknown][] = [];
     const record = (label: string, ctx: object) => {
       const c = ctx as Record<string, unknown>;
-      seen.push([label, c.fromUse, c.fromProvide]);
+      seen.push([label, c.fromDerive, c.fromProvide]);
     };
 
     const app = new Rhythm<{}>()
@@ -283,11 +326,12 @@ describe("provide()", () => {
         record("mw1:up", ctx);
       })
       .provide(() => ({ fromProvide: "db" }))
-      .use<{ fromUse: string }>(async (ctx, next) => {
+      .use(async (ctx, next) => {
         record("mw2:down", ctx);
-        await next({ fromUse: "user" });
+        await next();
         record("mw2:up", ctx);
       })
+      .use(derive(() => ({ fromDerive: "user" })))
       .use((ctx) => {
         record("mw3:down", ctx);
       });

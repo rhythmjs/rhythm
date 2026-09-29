@@ -1,5 +1,4 @@
 import { describe, expect, test } from "vite-plus/test";
-import { RhythmMutable } from "@rhythmjs/rhythm/types";
 import { createHttpContext, RhythmResponse, toResponse } from "./context";
 
 describe("RhythmResponse", () => {
@@ -11,9 +10,13 @@ describe("RhythmResponse", () => {
     expect([...response.headers.entries()]).toEqual([]);
   });
 
-  test("carries the RhythmMutable brand so it opts out of DeepReadonly", () => {
-    const response = new RhythmResponse();
-    expect(response[RhythmMutable]).toBe(true);
+  test.skip("type system: the input side of the context is readonly", () => {
+    const ctx = createHttpContext(new Request("http://localhost/"));
+    // @ts-expect-error the request binding is readonly
+    ctx.request = new Request("http://localhost/other");
+    // @ts-expect-error the response binding is readonly (its fields stay mutable)
+    ctx.response = new RhythmResponse();
+    ctx.response.status = 404;
   });
 
   test("fields are directly mutable, koa-style", () => {

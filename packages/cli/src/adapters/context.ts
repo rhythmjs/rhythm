@@ -1,8 +1,4 @@
-import { RhythmMutable } from "@rhythmjs/rhythm/types";
-
 export class RhythmCliResponse {
-  readonly [RhythmMutable] = true;
-
   exitCode = 0;
   stdout: string[] = [];
   stderr: string[] = [];
@@ -24,8 +20,8 @@ export class RhythmCliResponse {
 }
 
 export interface RhythmCliContext {
-  argv: string[];
-  flags: Record<string, string | boolean>;
-  stdin: ReadableStream<Uint8Array> | null;
-  response: RhythmCliResponse;
+  readonly argv: readonly string[];
+  readonly flags: Readonly<Record<string, string | boolean>>;
+  readonly stdin: ReadableStream<Uint8Array> | null;
+  readonly response: RhythmCliResponse;
 }

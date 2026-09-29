@@ -4,7 +4,7 @@ import { createNode, insertRoute, joinPath, lookupRoute, type TreeNode } from ".
 import type { RhythmHttpContext } from "./adapters/context";
 
 export interface RhythmRouterContext {
-  params: Record<string, string>;
+  readonly params: Readonly<Record<string, string>>;
 }
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
