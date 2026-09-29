@@ -1,7 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
+import { Buffer } from "node:buffer";
 import type { Rhythm } from "@rhythmjs/rhythm";
-import { createHttpContext, toResponse, type RhythmHttpContext } from "./context";
+import {
+  createHttpContext,
+  toResponse,
+  type RhythmHttpContext,
+  type RhythmResponse,
+} from "./context";
 
 const DEFAULT_BODY_LIMIT = 1024 * 1024;
 
@@ -54,13 +60,16 @@ async function toWebRequest(req: IncomingMessage, bodyLimit: number | false): Pr
   const host = req.headers.host ?? "localhost";
   const url = `http://${host}${req.url ?? "/"}`;
 
-  const headers = new Headers();
-  for (const [key, value] of Object.entries(req.headers)) {
+  // A pair list lets the Request constructor build its Headers in one native
+  // call instead of one .set() per header.
+  const headers: [string, string][] = [];
+  for (const key in req.headers) {
+    const value = req.headers[key];
     if (value === undefined) continue;
     if (Array.isArray(value)) {
-      for (const entry of value) headers.append(key, entry);
+      for (const entry of value) headers.push([key, entry]);
     } else {
-      headers.set(key, value);
+      headers.push([key, value]);
     }
   }
 
@@ -107,6 +116,41 @@ async function writeWebResponse(response: Response, res: ServerResponse): Promis
   });
 }
 
+// String and byte bodies — the overwhelmingly common case — are written
+// straight to the socket. Routing them through a web Response would wrap
+// every payload in a ReadableStream and pay a full stream lifecycle per
+// request, which roughly halves throughput.
+function writeDirectResponse(response: RhythmResponse, res: ServerResponse): void {
+  const { body, status } = response;
+  const headers = toNodeHeaders(response.headers);
+
+  let payload: string | Buffer | undefined;
+  if (typeof body === "string") payload = body;
+  else if (body instanceof Uint8Array)
+    payload = Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  else if (body instanceof ArrayBuffer) payload = Buffer.from(body);
+
+  if (!("content-length" in headers) && status !== 204 && status !== 304) {
+    headers["content-length"] =
+      payload === undefined
+        ? "0"
+        : String(typeof payload === "string" ? Buffer.byteLength(payload) : payload.byteLength);
+  }
+
+  if (response.statusText !== undefined) res.writeHead(status, response.statusText, headers);
+  else res.writeHead(status, headers);
+  res.end(payload);
+}
+
+function hasDirectBody(body: RhythmResponse["body"]): boolean {
+  return (
+    body === null ||
+    typeof body === "string" ||
+    body instanceof Uint8Array ||
+    body instanceof ArrayBuffer
+  );
+}
+
 export interface RhythmNodeHandlerOptions {
   bodyLimit?: number | false;
 }
@@ -121,7 +165,11 @@ export function toNodeHandler<TContext extends RhythmHttpContext, TProviders ext
     try {
       const request = await toWebRequest(req, bodyLimit);
       const ctx = await run(createHttpContext(request));
-      await writeWebResponse(toResponse(ctx.response), res);
+      if (hasDirectBody(ctx.response.body)) {
+        writeDirectResponse(ctx.response, res);
+      } else {
+        await writeWebResponse(toResponse(ctx.response), res);
+      }
     } catch (err) {
       if (!(err instanceof RhythmBodyTooLargeError)) console.error(err);
       if (!res.headersSent) {
