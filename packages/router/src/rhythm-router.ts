@@ -7,11 +7,20 @@ export interface RhythmRouterContext {
   readonly params: Readonly<Record<string, string>>;
 }
 
-type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export interface RhythmRouterOptions {
   prefix?: string;
 }
+
+export type RouterEntry =
+  | { readonly kind: "middleware"; readonly fn: Middleware<any> }
+  | {
+      readonly kind: "route";
+      readonly method: HttpMethod;
+      readonly path: string;
+      readonly handlers: readonly Middleware<any>[];
+    };
 
 type Entry =
   | { kind: "middleware"; fn: Middleware<any> }
@@ -29,6 +38,10 @@ export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext
 
   get #prefix(): string {
     return this.#options.prefix ?? "";
+  }
+
+  get entries(): readonly RouterEntry[] {
+    return [...this.#entries];
   }
 
   use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): RhythmRouter<TContext & TExtra>;

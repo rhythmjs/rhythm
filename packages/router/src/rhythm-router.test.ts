@@ -416,4 +416,34 @@ describe("RhythmRouter", () => {
     expect("register" in router).toBe(false);
     expect("provide" in router).toBe(false);
   });
+
+  describe("entries", () => {
+    test("exposes middlewares and routes in registration order with prefixed paths", () => {
+      const mw: Middleware<RhythmHttpContext> = async (_ctx, next) => {
+        await next();
+      };
+      const handler: Middleware<any> = (ctx) => {
+        ctx.response.body = "ok";
+      };
+
+      const router = new RhythmRouter({ prefix: "/api" }).get("/users", handler).use(mw).post("/users/:id", handler);
+
+      const entries = router.entries;
+      expect(entries).toHaveLength(3);
+      expect(entries[0]).toEqual({ kind: "route", method: "GET", path: "/api/users", handlers: [handler] });
+      expect(entries[1]).toEqual({ kind: "middleware", fn: mw });
+      expect(entries[2]).toEqual({ kind: "route", method: "POST", path: "/api/users/:id", handlers: [handler] });
+    });
+
+    test("returns a copy - mutating the result does not affect dispatch", async () => {
+      const router = new RhythmRouter().get("/ping", (ctx) => {
+        ctx.response.body = "pong";
+      });
+
+      (router.entries as unknown[]).length = 0;
+
+      const res = await serve(router)(new Request("http://localhost/ping"));
+      expect(await res.text()).toBe("pong");
+    });
+  });
 });
