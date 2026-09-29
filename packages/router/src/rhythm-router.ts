@@ -1,5 +1,5 @@
 import { compose } from "@rhythmjs/rhythm/compose";
-import type { Middleware, NextFn } from "@rhythmjs/rhythm/types";
+import type { DeriveMiddleware, Middleware, NextFn } from "@rhythmjs/rhythm/types";
 import { createNode, insertRoute, joinPath, lookupRoute, type TreeNode } from "./radix-tree";
 import type { RhythmHttpContext } from "./adapters/context";
 
@@ -17,6 +17,8 @@ type Entry =
   | { kind: "middleware"; fn: Middleware<any> }
   | { kind: "route"; method: HttpMethod; path: string; handlers: Middleware<any>[] };
 
+type RouteHandler<TContext> = Middleware<TContext & RhythmRouterContext>;
+
 export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext> {
   #options: RhythmRouterOptions;
   #entries: Entry[] = [];
@@ -31,7 +33,8 @@ export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext
   }
 
   use(child: RhythmRouter<any>): this;
-  use<TExtra extends object = {}>(fn: Middleware<TContext>): RhythmRouter<TContext & TExtra>;
+  use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): RhythmRouter<TContext & TExtra>;
+  use(fn: Middleware<TContext>): this;
   use(arg: Middleware<TContext> | RhythmRouter<any>): RhythmRouter<any> {
     if (arg instanceof RhythmRouter) {
       for (const entry of arg.#entries) {
@@ -51,38 +54,23 @@ export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext
     return this;
   }
 
-  get<TExtra extends object = {}>(
-    path: string,
-    ...handlers: Middleware<TContext & RhythmRouterContext & TExtra>[]
-  ): this {
+  get(path: string, ...handlers: RouteHandler<TContext>[]): this {
     return this.#route("GET", path, handlers);
   }
 
-  post<TExtra extends object = {}>(
-    path: string,
-    ...handlers: Middleware<TContext & RhythmRouterContext & TExtra>[]
-  ): this {
+  post(path: string, ...handlers: RouteHandler<TContext>[]): this {
     return this.#route("POST", path, handlers);
   }
 
-  put<TExtra extends object = {}>(
-    path: string,
-    ...handlers: Middleware<TContext & RhythmRouterContext & TExtra>[]
-  ): this {
+  put(path: string, ...handlers: RouteHandler<TContext>[]): this {
     return this.#route("PUT", path, handlers);
   }
 
-  patch<TExtra extends object = {}>(
-    path: string,
-    ...handlers: Middleware<TContext & RhythmRouterContext & TExtra>[]
-  ): this {
+  patch(path: string, ...handlers: RouteHandler<TContext>[]): this {
     return this.#route("PATCH", path, handlers);
   }
 
-  delete<TExtra extends object = {}>(
-    path: string,
-    ...handlers: Middleware<TContext & RhythmRouterContext & TExtra>[]
-  ): this {
+  delete(path: string, ...handlers: RouteHandler<TContext>[]): this {
     return this.#route("DELETE", path, handlers);
   }
 

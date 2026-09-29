@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
 import { Rhythm } from "@rhythmjs/rhythm";
+import type { DeriveMiddleware, Middleware } from "@rhythmjs/rhythm/types";
 import { toFetchHandler } from "./adapters/web-std";
 import type { RhythmHttpContext } from "./adapters/context";
 import { RhythmRouter } from "./rhythm-router";
@@ -281,6 +282,61 @@ describe("RhythmRouter", () => {
 
       expect(await res.text()).toBe("router");
       expect(res.headers.get("x-app")).toBe("seen");
+    });
+  });
+
+  describe("derived context", () => {
+    type UserContext = { user: { name: string } };
+
+    test("context derived by middleware reaches route handlers on a typed router", async () => {
+      const withUser: Middleware<RhythmHttpContext & Partial<UserContext>> = async (ctx, next) => {
+        ctx.user = { name: "Ada" };
+        await next();
+      };
+
+      const router = new RhythmRouter<RhythmHttpContext & UserContext>().use(withUser).get("/me", (ctx) => {
+        ctx.response.body = `hi ${ctx.user.name} at ${ctx.params.id ?? "root"}`;
+      });
+
+      const res = await serve(router)(new Request("http://localhost/me"));
+
+      expect(await res.text()).toBe("hi Ada at root");
+    });
+
+    test("use() with a derive-branded middleware widens the context for later routes, like Rhythm.use()", async () => {
+      const attach = <TExtra extends object>(extra: TExtra): DeriveMiddleware<RhythmHttpContext, TExtra> => {
+        const middleware: Middleware<RhythmHttpContext> = async (ctx, next) => {
+          Object.assign(ctx, extra);
+          await next();
+        };
+        return middleware as DeriveMiddleware<RhythmHttpContext, TExtra>;
+      };
+
+      const router = new RhythmRouter()
+        .use(attach({ user: { name: "Lin" } }))
+        .use(attach({ trace: "abc" }))
+        .get("/hello", (ctx) => {
+          ctx.response.body = `hi ${ctx.user.name} (${ctx.trace})`;
+        });
+
+      const res = await serve(router)(new Request("http://localhost/hello"));
+
+      expect(await res.text()).toBe("hi Lin (abc)");
+    });
+
+    test("context derived inside a route's own middleware chain reaches later handlers", async () => {
+      const withUser: Middleware<RhythmHttpContext & Partial<UserContext>> = async (ctx, next) => {
+        ctx.user = { name: "Grace" };
+        await next();
+      };
+
+      const router = new RhythmRouter<RhythmHttpContext & UserContext>().get("/whoami", withUser, (ctx) => {
+        ctx.response.body = ctx.user.name;
+      });
+
+      const res = await serve(router)(new Request("http://localhost/whoami"));
+
+      expect(await res.text()).toBe("Grace");
     });
   });
 
