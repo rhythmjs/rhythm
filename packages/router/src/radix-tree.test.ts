@@ -105,6 +105,114 @@ describe("insertRoute()/lookupRoute()", () => {
 
     expect(lookupRoute(tree, "GET", "/users/1/posts/2")?.params).toEqual({ id: "1", postId: "2" });
   });
+
+  test("backtracks into a param branch when a static branch dead-ends deeper", () => {
+    const tree = createNode<Method>();
+    insertRoute(tree, "GET", "/users/new", noopHandlers());
+    insertRoute(tree, "GET", "/users/:id/posts", noopHandlers());
+
+    expect(lookupRoute(tree, "GET", "/users/new")?.params).toEqual({});
+    expect(lookupRoute(tree, "GET", "/users/new/posts")?.params).toEqual({ id: "new" });
+  });
+});
+
+describe("wildcards", () => {
+  test("captures the rest of the path under the '*' param", () => {
+    const tree = createNode<Method>();
+    insertRoute(tree, "GET", "/files/*", noopHandlers());
+
+    expect(lookupRoute(tree, "GET", "/files/docs/readme.md")?.params).toEqual({ "*": "docs/readme.md" });
+  });
+
+  test("matches an empty remainder, but not the path without the trailing slash", () => {
+    const tree = createNode<Method>();
+    insertRoute(tree, "GET", "/files/*", noopHandlers());
+
+    expect(lookupRoute(tree, "GET", "/files/")?.params).toEqual({ "*": "" });
+    expect(lookupRoute(tree, "GET", "/files")).toBeNull();
+  });
+
+  test("static and param siblings win over the wildcard", () => {
+    const tree = createNode<Method>();
+    insertRoute(tree, "GET", "/files/*", noopHandlers());
+    insertRoute(tree, "GET", "/files/index", noopHandlers());
+    insertRoute(tree, "GET", "/files/:name", noopHandlers());
+
+    expect(lookupRoute(tree, "GET", "/files/index")?.params).toEqual({});
+    expect(lookupRoute(tree, "GET", "/files/a")?.params).toEqual({ name: "a" });
+    expect(lookupRoute(tree, "GET", "/files/a/b")?.params).toEqual({ "*": "a/b" });
+  });
+
+  test("falls back to the wildcard when a static branch dead-ends deeper", () => {
+    const tree = createNode<Method>();
+    insertRoute(tree, "GET", "/files/img/logo.png", noopHandlers());
+    insertRoute(tree, "GET", "/files/*", noopHandlers());
+
+    expect(lookupRoute(tree, "GET", "/files/img/logo.png")?.params).toEqual({});
+    expect(lookupRoute(tree, "GET", "/files/img/other.png")?.params).toEqual({ "*": "img/other.png" });
+  });
+
+  test("decodes the captured rest", () => {
+    const tree = createNode<Method>();
+    insertRoute(tree, "GET", "/files/*", noopHandlers());
+
+    expect(lookupRoute(tree, "GET", "/files/hello%20world")?.params).toEqual({ "*": "hello world" });
+  });
+
+  test("is method-scoped like any other route", () => {
+    const tree = createNode<Method>();
+    insertRoute(tree, "GET", "/files/*", noopHandlers());
+
+    expect(lookupRoute(tree, "POST", "/files/a")).toBeNull();
+  });
+
+  test("rejects a wildcard that is not at the end of the path", () => {
+    const tree = createNode<Method>();
+
+    expect(() => insertRoute(tree, "GET", "/files/*/meta", noopHandlers())).toThrow();
+  });
+});
+
+describe("optional params", () => {
+  test("matches with and without the optional segment", () => {
+    const tree = createNode<Method>();
+    insertRoute(tree, "GET", "/users/:id?", noopHandlers());
+
+    expect(lookupRoute(tree, "GET", "/users")?.params).toEqual({});
+    expect(lookupRoute(tree, "GET", "/users/42")?.params).toEqual({ id: "42" });
+    expect(lookupRoute(tree, "GET", "/users/42/extra")).toBeNull();
+  });
+
+  test("chained optional params expand progressively", () => {
+    const tree = createNode<Method>();
+    insertRoute(tree, "GET", "/posts/:year?/:month?", noopHandlers());
+
+    expect(lookupRoute(tree, "GET", "/posts")?.params).toEqual({});
+    expect(lookupRoute(tree, "GET", "/posts/2024")?.params).toEqual({ year: "2024" });
+    expect(lookupRoute(tree, "GET", "/posts/2024/05")?.params).toEqual({ year: "2024", month: "05" });
+  });
+
+  test("an optional param at the root matches '/'", () => {
+    const tree = createNode<Method>();
+    insertRoute(tree, "GET", "/:page?", noopHandlers());
+
+    expect(lookupRoute(tree, "GET", "/")?.params).toEqual({});
+    expect(lookupRoute(tree, "GET", "/about")?.params).toEqual({ page: "about" });
+  });
+
+  test("rejects a required segment after an optional param", () => {
+    const tree = createNode<Method>();
+
+    expect(() => insertRoute(tree, "GET", "/users/:id?/posts", noopHandlers())).toThrow();
+    expect(() => insertRoute(tree, "GET", "/users/:id?/*", noopHandlers())).toThrow();
+  });
+
+  test("rejects '?' anywhere other than marking an optional param", () => {
+    const tree = createNode<Method>();
+
+    expect(() => insertRoute(tree, "GET", "/users?", noopHandlers())).toThrow();
+    expect(() => insertRoute(tree, "GET", "/users/:id?x", noopHandlers())).toThrow();
+  });
 });
 
 describe("joinPath()", () => {
