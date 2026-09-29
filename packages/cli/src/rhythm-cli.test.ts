@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vite-plus/test";
 import { Rhythm } from "@rhythmjs/rhythm";
+import type { DeriveMiddleware, Middleware } from "@rhythmjs/rhythm/types";
 import { RhythmCliResponse, type RhythmCliContext } from "./adapters/context";
 import { toCliHandler } from "./adapters/bun";
 import { RhythmCli } from "./rhythm-cli";
@@ -74,6 +75,23 @@ describe("RhythmCli", () => {
 
     await collect(host(cli))(["greet"]);
     expect(events).toEqual(["command"]);
+  });
+
+  test("a derive middleware in the command's middleware slot types the handler", async () => {
+    const withUser = (() => {
+      const middleware: Middleware<RhythmCliContext> = async (ctx, next) => {
+        Object.assign(ctx, { user: "ada" });
+        await next();
+      };
+      return middleware as DeriveMiddleware<RhythmCliContext, { user: string }>;
+    })();
+
+    const cli = new RhythmCli().command("greet :name", withUser, (ctx) => {
+      ctx.response.print(`${ctx.user} greets ${ctx.args.name}`);
+    });
+
+    const result = await collect(host(cli))(["greet", "grace"]);
+    expect(result.stdout).toBe("ada greets grace");
   });
 
   test("a middleware between two commands wraps only the command registered after it", async () => {

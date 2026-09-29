@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
 import { Rhythm } from "@rhythmjs/rhythm";
+import { compose } from "@rhythmjs/rhythm/compose";
 import type { DeriveMiddleware, Middleware } from "@rhythmjs/rhythm/types";
 import { toFetchHandler } from "./adapters/web-std";
 import type { RhythmHttpContext } from "./adapters/context";
@@ -293,6 +294,14 @@ describe("RhythmRouter", () => {
   describe("derived context", () => {
     type UserContext = { user: { name: string } };
 
+    const attach = <TExtra extends object>(extra: TExtra): DeriveMiddleware<RhythmHttpContext, TExtra> => {
+      const middleware: Middleware<RhythmHttpContext> = async (ctx, next) => {
+        Object.assign(ctx, extra);
+        await next();
+      };
+      return middleware as DeriveMiddleware<RhythmHttpContext, TExtra>;
+    };
+
     test("context derived by middleware reaches route handlers on a typed router", async () => {
       const withUser: Middleware<RhythmHttpContext & Partial<UserContext>> = async (ctx, next) => {
         ctx.user = { name: "Ada" };
@@ -309,14 +318,6 @@ describe("RhythmRouter", () => {
     });
 
     test("use() with a derive-branded middleware widens the context for later routes, like Rhythm.use()", async () => {
-      const attach = <TExtra extends object>(extra: TExtra): DeriveMiddleware<RhythmHttpContext, TExtra> => {
-        const middleware: Middleware<RhythmHttpContext> = async (ctx, next) => {
-          Object.assign(ctx, extra);
-          await next();
-        };
-        return middleware as DeriveMiddleware<RhythmHttpContext, TExtra>;
-      };
-
       const router = new RhythmRouter()
         .use(attach({ user: { name: "Lin" } }))
         .use(attach({ trace: "abc" }))
@@ -327,6 +328,28 @@ describe("RhythmRouter", () => {
       const res = await serve(router)(new Request("http://localhost/hello"));
 
       expect(await res.text()).toBe("hi Lin (abc)");
+    });
+
+    test("a derive middleware in the route's middleware slot types the handler, without explicit generics", async () => {
+      const router = new RhythmRouter().get("/me/:id", attach({ user: { name: "Ada" } }), (ctx) => {
+        ctx.response.body = `${ctx.user.name}/${ctx.params.id}`;
+      });
+
+      const res = await serve(router)(new Request("http://localhost/me/7"));
+
+      expect(await res.text()).toBe("Ada/7");
+    });
+
+    test("compose() fuses any number of derive middlewares into one typed slot middleware", async () => {
+      const guard = compose([attach({ user: { name: "Grace" } }), attach({ trace: "t1" }), attach({ tenant: "acme" })]);
+
+      const router = new RhythmRouter().get("/whoami", guard, (ctx) => {
+        ctx.response.body = [ctx.user.name, ctx.trace, ctx.tenant].join("/");
+      });
+
+      const res = await serve(router)(new Request("http://localhost/whoami"));
+
+      expect(await res.text()).toBe("Grace/t1/acme");
     });
 
     test("context derived inside a route's own middleware chain reaches later handlers", async () => {

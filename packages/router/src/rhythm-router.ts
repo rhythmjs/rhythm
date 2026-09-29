@@ -44,23 +44,53 @@ export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext
     return this;
   }
 
-  get(path: string, ...handlers: RouteHandler<TContext>[]): this {
+  get<TExtra extends object>(
+    path: string,
+    middleware: DeriveMiddleware<TContext & RhythmRouterContext, TExtra>,
+    ...handlers: RouteHandler<TContext & TExtra>[]
+  ): this;
+  get(path: string, ...handlers: RouteHandler<TContext>[]): this;
+  get(path: string, ...handlers: Middleware<any>[]): this {
     return this.#route("GET", path, handlers);
   }
 
-  post(path: string, ...handlers: RouteHandler<TContext>[]): this {
+  post<TExtra extends object>(
+    path: string,
+    middleware: DeriveMiddleware<TContext & RhythmRouterContext, TExtra>,
+    ...handlers: RouteHandler<TContext & TExtra>[]
+  ): this;
+  post(path: string, ...handlers: RouteHandler<TContext>[]): this;
+  post(path: string, ...handlers: Middleware<any>[]): this {
     return this.#route("POST", path, handlers);
   }
 
-  put(path: string, ...handlers: RouteHandler<TContext>[]): this {
+  put<TExtra extends object>(
+    path: string,
+    middleware: DeriveMiddleware<TContext & RhythmRouterContext, TExtra>,
+    ...handlers: RouteHandler<TContext & TExtra>[]
+  ): this;
+  put(path: string, ...handlers: RouteHandler<TContext>[]): this;
+  put(path: string, ...handlers: Middleware<any>[]): this {
     return this.#route("PUT", path, handlers);
   }
 
-  patch(path: string, ...handlers: RouteHandler<TContext>[]): this {
+  patch<TExtra extends object>(
+    path: string,
+    middleware: DeriveMiddleware<TContext & RhythmRouterContext, TExtra>,
+    ...handlers: RouteHandler<TContext & TExtra>[]
+  ): this;
+  patch(path: string, ...handlers: RouteHandler<TContext>[]): this;
+  patch(path: string, ...handlers: Middleware<any>[]): this {
     return this.#route("PATCH", path, handlers);
   }
 
-  delete(path: string, ...handlers: RouteHandler<TContext>[]): this {
+  delete<TExtra extends object>(
+    path: string,
+    middleware: DeriveMiddleware<TContext & RhythmRouterContext, TExtra>,
+    ...handlers: RouteHandler<TContext & TExtra>[]
+  ): this;
+  delete(path: string, ...handlers: RouteHandler<TContext>[]): this;
+  delete(path: string, ...handlers: Middleware<any>[]): this {
     return this.#route("DELETE", path, handlers);
   }
 

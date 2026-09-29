@@ -1,27 +1,50 @@
-import type { Middleware, NextFn } from "./types";
+import type { DeriveMiddleware, Middleware, NextFn } from "./types";
 
-export function compose<TContext extends object>(middleware: Middleware<TContext>[]) {
+type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
+
+type ContextOf<M> = M extends Middleware<infer C> ? C : never;
+
+type ExtraOf<M> = M extends DeriveMiddleware<any, infer E> ? E : {};
+
+export type ComposedMiddleware<TContext extends object, TExtra extends object> = ((
+  context: TContext,
+  next?: NextFn<TContext>,
+) => Promise<TContext>) &
+  Middleware<TContext> & {
+    readonly "~derive": TExtra;
+  };
+
+export function compose<const TMiddleware extends readonly Middleware<any>[]>(
+  middleware: TMiddleware,
+): ComposedMiddleware<
+  UnionToIntersection<ContextOf<TMiddleware[number]>> & {},
+  UnionToIntersection<ExtraOf<TMiddleware[number]>> & {}
+>;
+export function compose<TContext extends object>(
+  middleware: Middleware<TContext>[],
+): (context: TContext, next?: NextFn<TContext>) => Promise<TContext>;
+export function compose(middleware: readonly Middleware<any>[]): any {
   if (!Array.isArray(middleware)) throw new TypeError("Middleware stack must be an array!");
   for (const fn of middleware) {
     if (typeof fn !== "function") throw new TypeError("Middleware must be composed of functions!");
   }
 
-  return function (context: TContext, next?: NextFn<TContext>): Promise<TContext> {
+  return function (context: any, next?: NextFn<any>): Promise<any> {
     let index = -1;
 
     return dispatch(0);
 
-    function dispatch(i: number): Promise<TContext> {
+    function dispatch(i: number): Promise<any> {
       if (i <= index) return Promise.reject(new Error("next() called multiple times"));
       index = i;
 
       const fn = i === middleware.length ? next : middleware[i];
       if (!fn) return Promise.resolve(context);
 
-      const dispatchNext: NextFn<TContext> = () => dispatch(i + 1);
+      const dispatchNext: NextFn<any> = () => dispatch(i + 1);
 
       try {
-        const call = fn as (ctx: TContext, next: NextFn<TContext>) => Promise<void> | void;
+        const call = fn as (ctx: any, next: NextFn<any>) => Promise<void> | void;
         return Promise.resolve(call(context, dispatchNext)).then(() => context);
       } catch (err) {
         return Promise.reject(err);

@@ -55,7 +55,13 @@ export class RhythmCli<TContext extends RhythmCliContext = RhythmCliContext> {
     return this;
   }
 
-  command(path: string, ...handlers: Middleware<TContext & RhythmCliCommandContext>[]): this {
+  command<TExtra extends object>(
+    path: string,
+    middleware: DeriveMiddleware<TContext & RhythmCliCommandContext, TExtra>,
+    ...handlers: Middleware<TContext & RhythmCliCommandContext & TExtra>[]
+  ): this;
+  command(path: string, ...handlers: Middleware<TContext & RhythmCliCommandContext>[]): this;
+  command(path: string, ...handlers: Middleware<any>[]): this {
     this.#entries.push({ kind: "command", segments: [...this.#prefixSegments, ...toSegments(path)], handlers });
     return this;
   }
