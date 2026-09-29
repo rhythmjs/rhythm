@@ -6,7 +6,7 @@ import { RhythmCli } from "./rhythm-cli";
 
 vi.stubGlobal("Bun", { stdin: { stream: () => new ReadableStream<Uint8Array>() } });
 
-const host = (cli: RhythmCli<any>) => new Rhythm<RhythmCliContext>().use(cli.commands());
+const host = (cli: RhythmCli<any>) => new Rhythm<RhythmCliContext>().use(cli.middleware());
 
 function collect(app: Rhythm<RhythmCliContext, any, any>) {
   return async (argv: string[]) => {
@@ -114,36 +114,36 @@ describe("RhythmCli", () => {
       expect((await run(["add", "origin"])).stdout).toBe("");
     });
 
-    test("a parent cli's prefix applies to a child cli mounted via use(child)", async () => {
-      const remoteCli = new RhythmCli().command("add :name", (ctx) => {
+    test("a child cli mounted via use(child.middleware()) serves under its own prefix", async () => {
+      const remoteCli = new RhythmCli({ prefix: "remote" }).command("add :name", (ctx) => {
         ctx.response.print(ctx.args.name);
       });
-      const gitCli = new RhythmCli({ prefix: "remote" }).use(remoteCli);
+      const gitCli = new RhythmCli().use(remoteCli.middleware());
       const run = collect(host(gitCli));
 
       expect((await run(["remote", "add", "origin"])).stdout).toBe("origin");
       expect((await run(["add", "origin"])).stdout).toBe("");
     });
 
-    test("prefixes compose across multiple levels of nesting", async () => {
-      const remoteCli = new RhythmCli().command("add :name", (ctx) => {
+    test("nesting is wiring only - a parent's prefix does not re-prefix a mounted child's commands", async () => {
+      const remoteCli = new RhythmCli({ prefix: "git remote" }).command("add :name", (ctx) => {
         ctx.response.print(ctx.args.name);
       });
-      const gitCli = new RhythmCli({ prefix: "git" }).use(remoteCli);
-      const rootCli = new RhythmCli({ prefix: "vcs" }).use(gitCli);
+      const rootCli = new RhythmCli({ prefix: "vcs" }).use(remoteCli.middleware());
       const run = collect(host(rootCli));
 
-      expect((await run(["vcs", "git", "add", "origin"])).stdout).toBe("origin");
+      expect((await run(["git", "remote", "add", "origin"])).stdout).toBe("origin");
+      expect((await run(["vcs", "git", "remote", "add", "origin"])).stdout).toBe("");
     });
   });
 
-  describe("commands(), mounted via a parent's use() (koa-style)", () => {
+  describe("middleware(), mounted via a parent's use() (koa-style)", () => {
     test("a matched command short-circuits the parent app's downstream middleware", async () => {
       const cli = new RhythmCli().command("greet", (ctx) => {
         ctx.response.print("hello");
       });
 
-      const app = new Rhythm<RhythmCliContext>().use(cli.commands()).use((ctx) => {
+      const app = new Rhythm<RhythmCliContext>().use(cli.middleware()).use((ctx) => {
         ctx.response.exit(1).print("fallback");
       });
       const run = collect(app);
@@ -158,7 +158,7 @@ describe("RhythmCli", () => {
         ctx.response.print("hello");
       });
 
-      const app = new Rhythm<RhythmCliContext>().use(cli.commands()).use((ctx) => {
+      const app = new Rhythm<RhythmCliContext>().use(cli.middleware()).use((ctx) => {
         ctx.response.exit(1).print("command not found");
       });
       const run = collect(app);

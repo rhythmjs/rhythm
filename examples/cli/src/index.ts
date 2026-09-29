@@ -25,7 +25,7 @@ const rootCli = new RhythmCli<RhythmCliContext & { prompt: RhythmPrompt }>()
     });
     ctx.response.print(`Created "${name}" (${useTypeScript ? "TypeScript" : "JavaScript"}, ${packageManager})`);
   })
-  .use(remoteCli);
+  .use(remoteCli.middleware());
 
 const app = new Rhythm<RhythmCliContext>({ name: "app" })
   .provide(
@@ -39,7 +39,7 @@ const app = new Rhythm<RhythmCliContext>({ name: "app" })
     if (ctx.flags.verbose) console.error(`[cli] argv: ${ctx.argv.join(" ")}`);
     await next();
   })
-  .use(rootCli.commands())
+  .use(rootCli.middleware())
   .use((ctx) => {
     ctx.response.exit(1).printError(`Unknown command: ${ctx.argv.join(" ") || "(none)"}`);
   });

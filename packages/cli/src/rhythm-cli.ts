@@ -1,5 +1,5 @@
 import { compose } from "@rhythmjs/rhythm/compose";
-import type { Middleware, NextFn } from "@rhythmjs/rhythm/types";
+import type { DeriveMiddleware, Middleware, NextFn } from "@rhythmjs/rhythm/types";
 import type { RhythmCliContext } from "./adapters/context";
 import { parseArgv } from "./argv";
 
@@ -38,7 +38,6 @@ type Entry =
 export class RhythmCli<TContext extends RhythmCliContext = RhythmCliContext> {
   #options: RhythmCliOptions;
   #entries: Entry[] = [];
-  #composed: ((context: TContext, next?: NextFn<TContext>) => Promise<TContext>) | null = null;
 
   constructor(options: RhythmCliOptions = {}) {
     this.#options = options;
@@ -48,32 +47,20 @@ export class RhythmCli<TContext extends RhythmCliContext = RhythmCliContext> {
     return this.#options.prefix ? toSegments(this.#options.prefix) : [];
   }
 
-  use(child: RhythmCli<any>): this;
-  use<TExtra extends object = {}>(fn: Middleware<TContext>): RhythmCli<TContext & TExtra>;
-  use(arg: Middleware<TContext> | RhythmCli<any>): RhythmCli<any> {
-    if (arg instanceof RhythmCli) {
-      for (const entry of arg.#entries) {
-        this.#entries.push(
-          entry.kind === "command" ? { ...entry, segments: [...this.#prefixSegments, ...entry.segments] } : entry,
-        );
-      }
-    } else {
-      if (typeof arg !== "function") throw new TypeError("middleware must be a function!");
-      this.#entries.push({ kind: "middleware", fn: arg });
-    }
-    this.#composed = null;
+  use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): RhythmCli<TContext & TExtra>;
+  use(fn: Middleware<TContext>): this;
+  use(fn: Middleware<TContext>): any {
+    if (typeof fn !== "function") throw new TypeError("middleware must be a function!");
+    this.#entries.push({ kind: "middleware", fn });
     return this;
   }
 
   command(path: string, ...handlers: Middleware<TContext & RhythmCliCommandContext>[]): this {
     this.#entries.push({ kind: "command", segments: [...this.#prefixSegments, ...toSegments(path)], handlers });
-    this.#composed = null;
     return this;
   }
 
   #compile(): (context: TContext, next?: NextFn<TContext>) => Promise<TContext> {
-    if (this.#composed) return this.#composed;
-
     type CommandDispatch = (context: TContext & RhythmCliCommandContext, next?: NextFn<any>) => Promise<unknown>;
     type CompiledCommand = { segments: string[]; dispatch: CommandDispatch };
 
@@ -109,13 +96,13 @@ export class RhythmCli<TContext extends RhythmCliContext = RhythmCliContext> {
       stack.push(dispatchFor(compiled));
     }
 
-    this.#composed = compose<TContext>(stack);
-    return this.#composed;
+    return compose<TContext>(stack);
   }
 
-  commands(): Middleware<TContext> {
+  middleware(): Middleware<TContext> {
+    const fn = this.#compile();
     return async (ctx, next) => {
-      await this.#compile()(ctx as unknown as TContext, next);
+      await fn(ctx as unknown as TContext, next);
     };
   }
 }

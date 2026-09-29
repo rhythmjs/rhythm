@@ -24,11 +24,9 @@ describe("onion middleware", () => {
   });
 
   test("next() is pure koa style - context extension happens through derive(), not next(extra)", async () => {
-    const app = new Rhythm<{}>()
-      .use(derive(() => ({ user: "Alice" })))
-      .use((ctx) => {
-        expect(ctx.user).toBe("Alice");
-      });
+    const app = new Rhythm<{}>().use(derive(() => ({ user: "Alice" }))).use((ctx) => {
+      expect(ctx.user).toBe("Alice");
+    });
 
     const result = await app.run({});
     expect(result.user).toBe("Alice");
@@ -179,12 +177,10 @@ describe("derive()", () => {
   });
 
   test("keys prefixed with # are stripped, matching provide()'s convention", async () => {
-    const app = new Rhythm<{}>()
-      .use(derive(() => ({ user: "Alice", "#raw": "internal" })))
-      .use((ctx) => {
-        expect((ctx as any)["#raw"]).toBeUndefined();
-        expect(ctx.user).toBe("Alice");
-      });
+    const app = new Rhythm<{}>().use(derive(() => ({ user: "Alice", "#raw": "internal" }))).use((ctx) => {
+      expect((ctx as any)["#raw"]).toBeUndefined();
+      expect(ctx.user).toBe("Alice");
+    });
 
     const result = await app.run({});
     expect((result as any)["#raw"]).toBeUndefined();
@@ -200,9 +196,11 @@ describe("derive()", () => {
           events.push(`caught: ${(err as Error).message}`);
         }
       })
-      .use(derive(() => {
-        throw new Error("invalid token");
-      }))
+      .use(
+        derive(() => {
+          throw new Error("invalid token");
+        }),
+      )
       .use(() => {
         events.push("unreached");
       });

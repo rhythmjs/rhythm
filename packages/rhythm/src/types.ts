@@ -4,10 +4,7 @@ export type OmitHashKeys<T> = {
 
 export type NextFn<TContext extends object> = () => Promise<TContext>;
 
-export type Middleware<TContext extends object> = (
-  ctx: TContext,
-  next: NextFn<TContext>,
-) => Promise<void> | void;
+export type Middleware<TContext extends object> = (ctx: TContext, next: NextFn<TContext>) => Promise<void> | void;
 
 export type DeriveMiddleware<TContext extends object, TExtra extends object> = Middleware<TContext> & {
   readonly "~derive": TExtra;

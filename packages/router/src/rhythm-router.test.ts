@@ -5,7 +5,7 @@ import { toFetchHandler } from "./adapters/web-std";
 import type { RhythmHttpContext } from "./adapters/context";
 import { RhythmRouter } from "./rhythm-router";
 
-const serve = (router: RhythmRouter<any>) => toFetchHandler(new Rhythm<RhythmHttpContext>().use(router.routes()));
+const serve = (router: RhythmRouter<any>) => toFetchHandler(new Rhythm<RhythmHttpContext>().use(router.middleware()));
 
 describe("RhythmRouter", () => {
   test("matches method + path and extracts named params", async () => {
@@ -194,14 +194,14 @@ describe("RhythmRouter", () => {
       expect(await res.text()).toBe("9");
     });
 
-    test("a parent router's prefix applies to a child router mounted via use(child)", async () => {
-      const usersRouter = new RhythmRouter().get("/users/:id", (ctx) => {
+    test("a child router mounted via use(child.middleware()) serves under its own prefix", async () => {
+      const usersRouter = new RhythmRouter({ prefix: "/api/users" }).get("/:id", (ctx) => {
         ctx.response.body = ctx.params.id;
       });
 
-      const apiRouter = new RhythmRouter({ prefix: "/api" }).use(usersRouter);
+      const rootRouter = new RhythmRouter().use(usersRouter.middleware());
 
-      const handler = serve(apiRouter);
+      const handler = serve(rootRouter);
 
       const prefixed = await handler(new Request("http://localhost/api/users/5"));
       expect(await prefixed.text()).toBe("5");
@@ -211,37 +211,42 @@ describe("RhythmRouter", () => {
       expect(await unprefixed.text()).toBe("");
     });
 
-    test("prefixes compose across multiple levels of nesting", async () => {
-      const usersRouter = new RhythmRouter().get("/users/:id", (ctx) => {
+    test("nesting is wiring only - a parent's prefix does not re-prefix a mounted child's paths", async () => {
+      const usersRouter = new RhythmRouter({ prefix: "/v1" }).get("/users/:id", (ctx) => {
         ctx.response.body = ctx.params.id;
       });
 
-      const v1Router = new RhythmRouter({ prefix: "/v1" }).use(usersRouter);
-      const apiRouter = new RhythmRouter({ prefix: "/api" }).use(v1Router);
+      const apiRouter = new RhythmRouter({ prefix: "/api" }).use(usersRouter.middleware());
 
-      const res = await serve(apiRouter)(new Request("http://localhost/api/v1/users/7"));
-      expect(await res.text()).toBe("7");
+      const handler = serve(apiRouter);
+
+      const own = await handler(new Request("http://localhost/v1/users/7"));
+      expect(await own.text()).toBe("7");
+
+      const reprefixed = await handler(new Request("http://localhost/api/v1/users/7"));
+      expect(reprefixed.status).toBe(200);
+      expect(await reprefixed.text()).toBe("");
     });
 
-    test("mounting a child router doesn't mutate the child's own standalone prefix", async () => {
-      const usersRouter = new RhythmRouter().get("/users/:id", (ctx) => {
+    test("mounting a child router leaves it fully usable standalone", async () => {
+      const usersRouter = new RhythmRouter({ prefix: "/users" }).get("/:id", (ctx) => {
         ctx.response.body = ctx.params.id;
       });
 
-      new RhythmRouter({ prefix: "/api" }).use(usersRouter);
+      new RhythmRouter().use(usersRouter.middleware());
 
       const res = await serve(usersRouter)(new Request("http://localhost/users/5"));
       expect(await res.text()).toBe("5");
     });
   });
 
-  describe("routes(), mounted via a parent's use() (koa-style)", () => {
+  describe("middleware(), mounted via a parent's use() (koa-style)", () => {
     test("a matched route that doesn't call next() short-circuits the parent app's downstream middleware", async () => {
       const router = new RhythmRouter().get("/hello", (ctx) => {
         ctx.response.body = "router";
       });
 
-      const app = new Rhythm<RhythmHttpContext>().use(router.routes()).use((ctx) => {
+      const app = new Rhythm<RhythmHttpContext>().use(router.middleware()).use((ctx) => {
         ctx.response.status = 404;
         ctx.response.body = "Not Found";
       });
@@ -257,7 +262,7 @@ describe("RhythmRouter", () => {
         ctx.response.body = "router";
       });
 
-      const app = new Rhythm<RhythmHttpContext>().use(router.routes()).use((ctx) => {
+      const app = new Rhythm<RhythmHttpContext>().use(router.middleware()).use((ctx) => {
         ctx.response.status = 404;
         ctx.response.body = "Not Found";
       });
@@ -274,7 +279,7 @@ describe("RhythmRouter", () => {
         await next();
       });
 
-      const app = new Rhythm<RhythmHttpContext>().use(router.routes()).use((ctx) => {
+      const app = new Rhythm<RhythmHttpContext>().use(router.middleware()).use((ctx) => {
         ctx.response.headers.set("x-app", "seen");
       });
 

@@ -13,7 +13,7 @@ const users: Record<string, User> = {
   u2: { id: "u2", name: "Bob" },
 };
 
-const usersRouter = new RhythmRouter({ prefix: "/users" }).get("/:id", (ctx) => {
+const usersRouter = new RhythmRouter({ prefix: "/api/users" }).get("/:id", (ctx) => {
   const user = users[ctx.params.id];
   if (!user) {
     ctx.error(404);
@@ -22,7 +22,7 @@ const usersRouter = new RhythmRouter({ prefix: "/users" }).get("/:id", (ctx) => 
   ctx.json(user);
 });
 
-const apiRouter = new RhythmRouter({ prefix: "/api" }).use(usersRouter);
+const apiRouter = new RhythmRouter().use(usersRouter.middleware());
 
 const app = new Rhythm<RhythmHttpContext>({ name: "app" })
   .provide(() => ({ logger: { info: (msg: string) => console.log(`[app] ${msg}`) } }))
@@ -33,7 +33,7 @@ const app = new Rhythm<RhythmHttpContext>({ name: "app" })
       `${ctx.request.method} ${new URL(ctx.request.url).pathname} - ${ctx.response.status} in ${Date.now() - startedAt}ms`,
     );
   })
-  .use(apiRouter.routes())
+  .use(apiRouter.middleware())
   .use(async (ctx) => {
     if (new URL(ctx.request.url).pathname === "/") {
       ctx.text("Welcome to the API!");

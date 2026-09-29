@@ -22,7 +22,6 @@ type RouteHandler<TContext> = Middleware<TContext & RhythmRouterContext>;
 export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext> {
   #options: RhythmRouterOptions;
   #entries: Entry[] = [];
-  #composed: ((context: TContext, next?: NextFn<TContext>) => Promise<TContext>) | null = null;
 
   constructor(options: RhythmRouterOptions = {}) {
     this.#options = options;
@@ -32,25 +31,16 @@ export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext
     return this.#options.prefix ?? "";
   }
 
-  use(child: RhythmRouter<any>): this;
   use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): RhythmRouter<TContext & TExtra>;
   use(fn: Middleware<TContext>): this;
-  use(arg: Middleware<TContext> | RhythmRouter<any>): RhythmRouter<any> {
-    if (arg instanceof RhythmRouter) {
-      for (const entry of arg.#entries) {
-        this.#entries.push(entry.kind === "route" ? { ...entry, path: joinPath(this.#prefix, entry.path) } : entry);
-      }
-    } else {
-      if (typeof arg !== "function") throw new TypeError("middleware must be a function!");
-      this.#entries.push({ kind: "middleware", fn: arg });
-    }
-    this.#composed = null;
+  use(fn: Middleware<TContext>): any {
+    if (typeof fn !== "function") throw new TypeError("middleware must be a function!");
+    this.#entries.push({ kind: "middleware", fn });
     return this;
   }
 
   #route(method: HttpMethod, path: string, handlers: Middleware<any>[]): this {
     this.#entries.push({ kind: "route", method, path: joinPath(this.#prefix, path), handlers });
-    this.#composed = null;
     return this;
   }
 
@@ -75,8 +65,6 @@ export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext
   }
 
   #compile(): (context: TContext, next?: NextFn<TContext>) => Promise<TContext> {
-    if (this.#composed) return this.#composed;
-
     type RouteDispatch = (context: TContext & RhythmRouterContext, next?: NextFn<any>) => Promise<unknown>;
 
     const dispatchFor = (tree: TreeNode<HttpMethod, RouteDispatch>): Middleware<any> => {
@@ -109,13 +97,13 @@ export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext
       stack.push(dispatchFor(tree));
     }
 
-    this.#composed = compose<TContext>(stack);
-    return this.#composed;
+    return compose<TContext>(stack);
   }
 
-  routes(): Middleware<TContext> {
+  middleware(): Middleware<TContext> {
+    const fn = this.#compile();
     return async (ctx, next) => {
-      await this.#compile()(ctx as unknown as TContext, next);
+      await fn(ctx as unknown as TContext, next);
     };
   }
 }
