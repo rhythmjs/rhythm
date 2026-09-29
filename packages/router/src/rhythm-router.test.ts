@@ -2,8 +2,8 @@ import { describe, expect, test } from "vite-plus/test";
 import { Rhythm } from "@rhythmjs/rhythm";
 import { compose } from "@rhythmjs/rhythm/compose";
 import type { DeriveMiddleware, Middleware } from "@rhythmjs/rhythm/types";
-import { toFetchHandler } from "./adapters/web-std";
-import type { RhythmHttpContext } from "./adapters/context";
+import { toFetchHandler } from "./fetch";
+import type { RhythmHttpContext } from "./context";
 import { RhythmRouter } from "./rhythm-router";
 
 const serve = (router: RhythmRouter<any>) => toFetchHandler(new Rhythm<RhythmHttpContext>().use(router.middleware()));

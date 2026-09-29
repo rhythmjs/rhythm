@@ -1,5 +1,6 @@
+import { FastResponse } from "srvx";
 import type { Rhythm } from "@rhythmjs/rhythm";
-import { createHttpContext, toResponse, type RhythmHttpContext } from "./context";
+import { createHttpContext, type RhythmHttpContext } from "./context";
 
 export function toFetchHandler<TContext extends RhythmHttpContext, TProviders extends object = {}>(
   app: Rhythm<RhythmHttpContext, TContext, TProviders>,
@@ -7,6 +8,11 @@ export function toFetchHandler<TContext extends RhythmHttpContext, TProviders ex
   const run = app.callback();
   return async (request: Request): Promise<Response> => {
     const ctx = await run(createHttpContext(request));
-    return toResponse(ctx.response);
+    const response = ctx.response;
+    return new FastResponse(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
   };
 }

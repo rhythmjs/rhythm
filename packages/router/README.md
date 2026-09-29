@@ -9,15 +9,15 @@ Web-standard HTTP routing on top of `@rhythmjs/rhythm`. `RhythmRouter` matches r
 ```ts
 import { Rhythm } from "@rhythmjs/rhythm";
 import { RhythmRouter } from "@rhythmjs/router";
-import { toFetchHandler } from "@rhythmjs/router/adapters/bun";
-import type { RhythmHttpContext } from "@rhythmjs/router/adapters/context";
+import { serve } from "@rhythmjs/router/serve";
+import type { RhythmHttpContext } from "@rhythmjs/router/context";
 
 const usersRouter = new RhythmRouter({ prefix: "/users" }).get("/:id", (ctx) => {
   ctx.json({ id: ctx.params.id });
 });
 
-const app = new Rhythm<RhythmHttpContext>().use(usersRouter.routes());
-Bun.serve({ fetch: toFetchHandler(app) });
+const app = new Rhythm<RhythmHttpContext>().use(usersRouter.middleware());
+serve(app, { port: 3000 });
 ```
 
 A fuller runnable version, including nested prefixes and a fallback route, is at [`examples/router`](../../examples/router).
@@ -37,18 +37,116 @@ A fuller runnable version, including nested prefixes and a fallback route, is at
 - `.get/.post/.put/.patch/.delete(path, ...handlers)` — register a route; `path` may contain `:param` segments.
 - `.use(fn)` — plain middleware. `.use(child)` — mount a nested `RhythmRouter` (prefixes compose).
 - `.routes()` — this router as a plain middleware, for mounting into a `Rhythm` app via `.use()`; the router's only way onto a server. Note: mounting a _router_ into a _router_ must use `.use(child)`, not `.use(child.routes())` — an opaque middleware can't have the parent's prefix applied to its routes.
-- `ctx.json/.text/.html(body, status?)`, `ctx.error(status, message?)`, `ctx.redirect(url, status?)` — response helpers built into the context by the adapters (`createHttpContext` in `adapters/context`).
+- `ctx.json/.text/.html(body, status?)`, `ctx.error(status, message?)`, `ctx.redirect(url, status?)` — response helpers built into the context by the adapters (`createHttpContext` in `@rhythmjs/router/context`).
 - `toFetchHandler(app)` — bridges a `Rhythm` app to a Web-standard `(Request) => Promise<Response>` handler.
 
-## Runtime adapters
+## Serving
 
-Everything above (`RhythmRouter`, `ctx.response`, etc.) is runtime-agnostic; only turning it into an actual server touches a specific runtime.
+Everything above (`RhythmRouter`, `ctx.response`, etc.) is runtime-agnostic. Two primitives turn an app into a server, both built on [srvx](https://srvx.h3.dev):
 
-- **`@rhythmjs/router/adapters/web-std`** — `toFetchHandler(app)`, the runtime-neutral Web-standard `(Request) => Promise<Response>` adapter every fetch-based runtime can use.
-- **`@rhythmjs/router/adapters/bun`** — re-exports `toFetchHandler` from `web-std`, for `Bun.serve({ fetch: toFetchHandler(app) })`.
-- **`@rhythmjs/router/adapters/deno`** — re-exports the same `toFetchHandler`, for `Deno.serve(toFetchHandler(app))`. `Deno.serve()` accepts the identical handler shape `Bun.serve()` does, so no conversion is needed.
-- **`@rhythmjs/router/adapters/node`** — `toNodeHandler(app, options?)`, for `http.createServer(toNodeHandler(app)).listen(port)`. Node's `IncomingMessage`/`ServerResponse` aren't Web-standard, so this one does real conversion:
-  - The request body is read eagerly into a buffer, up to `options.bodyLimit` (default 1mb). This guarantees the socket is always fully drained before the handler runs, even if the handler never reads `ctx.request`'s body — otherwise, on a keep-alive connection, unconsumed bytes left on the socket would stall the next request on it. A body over the limit gets a `413` and the connection is closed rather than kept alive.
-  - Pass `{ bodyLimit: false }` to opt out of buffering — `ctx.request`'s body becomes a live stream over the raw connection instead, with no size limit, for uploads or proxying where materializing the whole body in memory isn't acceptable. This reintroduces the keep-alive caveat: if the handler doesn't read the body, unconsumed bytes are left on the socket.
-  - The resulting `Response` is streamed back to the client via `Readable.fromWeb(...).pipe(res)`.
-  - Errors thrown anywhere in the middleware chain are caught, logged via `console.error`, and answered with a 500 (or the connection is destroyed if headers were already sent) — without this, an unhandled rejection would crash the whole Node process.
+- **`serve(app, options)`** (`@rhythmjs/router/serve`) — starts a server on Node, Bun, or Deno with one identical call; srvx picks the runtime implementation via conditional exports. On Node, requests are lazy: method, url, headers, and body materialize only when middleware touches them.
+- **`toFetchHandler(app)`** (`@rhythmjs/router/fetch`) — the universal `(Request) => Promise<Response>` handler, for platforms that invoke you per request instead of letting you own a listener.
+
+`serve()` accepts every srvx `ServerOptions` field except `fetch`: `port`, `hostname`, `tls` (HTTPS/HTTP2), `maxRequestBodySize` (an over-limit body read is answered with `413`), `reusePort`, `gracefulShutdown`, plus the three extension points below. Errors thrown in the middleware chain are answered with `500` (or the error's own `status`) without crashing the process; override the mapping with `options.error`.
+
+### Extending: CORS, WebSockets, and similar
+
+- **`middleware`** — srvx middlewares (`(request, next) => Response`) run around the whole app, the natural place for CORS, logging, or auth gates:
+
+  ```ts
+  serve(app, {
+    middleware: [
+      async (request, next) => {
+        if (request.method === "OPTIONS")
+          return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*" } });
+        const response = await next();
+        response.headers.set("access-control-allow-origin", "*");
+        return response;
+      },
+    ],
+  });
+  ```
+
+- **`plugins`** — a plugin receives the live srvx `Server`, the hook for anything below fetch, WebSockets included ([crossws](https://crossws.h3.dev) attaches here; on Node the raw server is at `server.node.server`):
+
+  ```ts
+  serve(app, { plugins: [(server) => wireWebSockets(server)] });
+  ```
+
+- **`error`** — replace the default error-to-response mapping.
+
+## Deploying per runtime
+
+One app definition; each runtime has its own adapter under `@rhythmjs/router/adapters/*`, hono-style: import `handle` from your target's adapter and export what the platform expects.
+
+**Node**
+
+```ts
+import { createServer } from "node:http";
+import { handle } from "@rhythmjs/router/adapters/node";
+
+createServer(handle(app, { maxRequestBodySize: 1024 * 1024 })).listen(3000);
+```
+
+(Or skip the adapter entirely and use `serve(app, { port: 3000 })`.)
+
+**Bun**
+
+```ts
+import { handle } from "@rhythmjs/router/adapters/bun";
+
+Bun.serve({ port: 3000, fetch: handle(app) });
+```
+
+**Deno**
+
+```ts
+import { handle } from "@rhythmjs/router/adapters/deno";
+
+Deno.serve({ port: 3000 }, handle(app));
+```
+
+**Vercel** — in a catch-all route file:
+
+```ts
+import { handle } from "@rhythmjs/router/adapters/vercel";
+
+const handler = handle(app);
+export const GET = handler;
+export const POST = handler; // …and the other methods you serve
+```
+
+**Cloudflare Workers** — `env` and `ctx` are exposed to middleware as `ctx.request.runtime.cloudflare`:
+
+```ts
+import { handle } from "@rhythmjs/router/adapters/cloudflare";
+
+export default { fetch: handle(app) };
+```
+
+**AWS Lambda** — API Gateway v1/v2 events, translated by srvx:
+
+```ts
+import { handle } from "@rhythmjs/router/adapters/aws-lambda";
+
+export const lambda = handle(app);
+```
+
+**Netlify Edge Functions** — the Netlify context is exposed as `ctx.request.runtime.netlify`:
+
+```ts
+import { handle } from "@rhythmjs/router/adapters/netlify";
+
+export default handle(app);
+export const config = { path: "/*" };
+```
+
+**Service workers**
+
+```ts
+import { handle } from "@rhythmjs/router/adapters/service-worker";
+
+addEventListener("fetch", handle(app));
+```
+
+Any other fetch-based runtime works with the raw primitive: `toFetchHandler(app)` from `@rhythmjs/router/fetch`.

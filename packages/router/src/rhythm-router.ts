@@ -1,7 +1,7 @@
 import { compose } from "@rhythmjs/rhythm/compose";
 import type { DeriveMiddleware, Middleware, NextFn } from "@rhythmjs/rhythm/types";
 import { createNode, insertRoute, joinPath, lookupRoute, type TreeNode } from "./radix-tree";
-import type { RhythmHttpContext } from "./adapters/context";
+import type { RhythmHttpContext } from "./context";
 
 export interface RhythmRouterContext {
   readonly params: Readonly<Record<string, string>>;

@@ -23,9 +23,21 @@
       "types": "./dist/radix-tree.d.ts",
       "default": "./dist/radix-tree.js"
     },
-    "./adapters/web-std": {
-      "types": "./dist/adapters/web-std.d.ts",
-      "default": "./dist/adapters/web-std.js"
+    "./context": {
+      "types": "./dist/context.d.ts",
+      "default": "./dist/context.js"
+    },
+    "./fetch": {
+      "types": "./dist/fetch.d.ts",
+      "default": "./dist/fetch.js"
+    },
+    "./serve": {
+      "types": "./dist/serve.d.ts",
+      "default": "./dist/serve.js"
+    },
+    "./adapters/node": {
+      "types": "./dist/adapters/node.d.ts",
+      "default": "./dist/adapters/node.js"
     },
     "./adapters/bun": {
       "types": "./dist/adapters/bun.d.ts",
@@ -35,13 +47,29 @@
       "types": "./dist/adapters/deno.d.ts",
       "default": "./dist/adapters/deno.js"
     },
-    "./adapters/node": {
-      "types": "./dist/adapters/node.d.ts",
-      "default": "./dist/adapters/node.js"
+    "./adapters/vercel": {
+      "types": "./dist/adapters/vercel.d.ts",
+      "default": "./dist/adapters/vercel.js"
+    },
+    "./adapters/netlify": {
+      "types": "./dist/adapters/netlify.d.ts",
+      "default": "./dist/adapters/netlify.js"
+    },
+    "./adapters/cloudflare": {
+      "types": "./dist/adapters/cloudflare.d.ts",
+      "default": "./dist/adapters/cloudflare.js"
+    },
+    "./adapters/aws-lambda": {
+      "types": "./dist/adapters/aws-lambda.d.ts",
+      "default": "./dist/adapters/aws-lambda.js"
+    },
+    "./adapters/service-worker": {
+      "types": "./dist/adapters/service-worker.d.ts",
+      "default": "./dist/adapters/service-worker.js"
     },
     "./adapters/context": {
-      "types": "./dist/adapters/context.d.ts",
-      "default": "./dist/adapters/context.js"
+      "types": "./dist/context.d.ts",
+      "default": "./dist/context.js"
     },
     "./package.json": "./package.json"
   },
@@ -49,7 +77,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@rhythmjs/rhythm": "workspace:*"
+    "@rhythmjs/rhythm": "workspace:*",
+    "srvx": "^1.0.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",

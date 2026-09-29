@@ -1,6 +1,6 @@
 import { Rhythm } from "@rhythmjs/rhythm";
-import { toFetchHandler } from "@rhythmjs/router/adapters/bun";
-import type { RhythmHttpContext } from "@rhythmjs/router/adapters/context";
+import type { RhythmHttpContext } from "@rhythmjs/router/context";
+import { serve } from "@rhythmjs/router/serve";
 import { RhythmRouter } from "@rhythmjs/router";
 
 interface User {
@@ -42,5 +42,6 @@ const app = new Rhythm<RhythmHttpContext>({ name: "app" })
     ctx.error(404);
   });
 
-const server = Bun.serve({ port: 3000, fetch: toFetchHandler(app) });
-console.log(`listening on http://localhost:${server.port}`);
+const server = serve(app, { port: 3000 });
+await server.ready();
+console.log(`listening on ${server.url}`);

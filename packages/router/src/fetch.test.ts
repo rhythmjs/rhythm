@@ -1,17 +1,7 @@
 import { describe, expect, test } from "vite-plus/test";
 import { Rhythm } from "@rhythmjs/rhythm";
-import { toFetchHandler } from "./web-std";
+import { toFetchHandler } from "./fetch";
 import type { RhythmHttpContext } from "./context";
-
-describe("runtime re-exports", () => {
-  test("bun and deno adapters re-export the web-std toFetchHandler", async () => {
-    const bun = await import("./bun");
-    const deno = await import("./deno");
-
-    expect(bun.toFetchHandler).toBe(toFetchHandler);
-    expect(deno.toFetchHandler).toBe(toFetchHandler);
-  });
-});
 
 describe("toFetchHandler()", () => {
   test("ctx.response is seeded up front and mutated directly, koa-style", async () => {
