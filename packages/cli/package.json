@@ -1,6 +1,6 @@
 {
   "name": "@rhythmjs/cli",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Command-line argument parsing, prompts, and command routing for the Rhythm middleware kernel.",
   "homepage": "https://rhythm.js.org/cli",
   "license": "ISC",

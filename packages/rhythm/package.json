@@ -1,6 +1,6 @@
 {
   "name": "@rhythmjs/rhythm",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "A minimal, type-safe onion-middleware and provider composition kernel.",
   "homepage": "https://rhythm.js.org/rhythm",
   "license": "ISC",
