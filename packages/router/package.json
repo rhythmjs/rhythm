@@ -1,6 +1,6 @@
 {
   "name": "@rhythmjs/router",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Radix-tree HTTP router for the Rhythm middleware kernel, with Bun, Node, and Deno adapters.",
   "homepage": "https://rhythm.js.org/router",
   "license": "ISC",
