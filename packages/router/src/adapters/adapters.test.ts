@@ -2,8 +2,8 @@ import { describe, expect, test, vi } from "vite-plus/test";
 import * as http from "node:http";
 import { Rhythm } from "@rhythmjs/rhythm";
 import { RhythmRouter } from "../rhythm-router";
-import type { RhythmHttpContext } from "../context";
-import { handle as handleNode } from "./node";
+import { getRuntime, type RhythmHttpContext } from "../context";
+import { getRequestListener } from "./node";
 import { handle as handleBun } from "./bun";
 import { handle as handleDeno } from "./deno";
 import { handle as handleVercel } from "./vercel";
@@ -32,11 +32,32 @@ describe("fetch-shaped adapters (bun, deno, vercel)", () => {
       expect(await res.json()).toEqual({ id: "42" });
     }
   });
+
+  test("thrown errors map to a response on every adapter, and onError overrides", async () => {
+    const app = new Rhythm<RhythmHttpContext>().use(() => {
+      throw new Error("boom");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (const handle of [handleBun, handleDeno, handleVercel]) {
+        const failed = await handle(app)(new Request("http://localhost/"));
+        expect(failed.status).toBe(500);
+
+        const custom = await handle(app, {
+          onError: () => new Response("down", { status: 503 }),
+        })(new Request("http://localhost/"));
+        expect(custom.status).toBe(503);
+        expect(await custom.text()).toBe("down");
+      }
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
 });
 
-describe("node handle()", () => {
+describe("node getRequestListener()", () => {
   test("serves over node:http with params and JSON bodies", async () => {
-    const server = http.createServer(handleNode(makeApp()) as http.RequestListener);
+    const server = http.createServer(getRequestListener(makeApp()));
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const address = server.address();
     const port = typeof address === "object" && address !== null ? address.port : 0;
@@ -61,7 +82,7 @@ describe("node handle()", () => {
       await ctx.request.text();
       ctx.text("read");
     });
-    const server = http.createServer(handleNode(app, { maxRequestBodySize: 16 }) as http.RequestListener);
+    const server = http.createServer(getRequestListener(app, { maxRequestBodySize: 16 }));
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const address = server.address();
     const port = typeof address === "object" && address !== null ? address.port : 0;
@@ -87,7 +108,7 @@ describe("cloudflare and netlify handle()", () => {
   test("cloudflare exposes env and context on request.runtime", async () => {
     let seenRuntime: unknown;
     const app = new Rhythm<RhythmHttpContext>().use((ctx) => {
-      seenRuntime = (ctx.request as { runtime?: unknown }).runtime;
+      seenRuntime = getRuntime(ctx.request);
       ctx.json({ ok: true });
     });
     const env = { KV: "binding" };

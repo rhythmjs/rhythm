@@ -1,9 +1,5 @@
-import type { Rhythm } from "@rhythmjs/rhythm";
-import { toFetchHandler } from "../fetch";
-import type { RhythmHttpContext } from "../context";
+import { createFetchAdapter, type AdapterOptions, type FetchAdapter } from "./base";
 
-export function handle<TContext extends RhythmHttpContext, TProviders extends object = {}>(
-  app: Rhythm<RhythmHttpContext, TContext, TProviders>,
-): (request: Request) => Promise<Response> {
-  return toFetchHandler(app);
-}
+export type { AdapterOptions };
+
+export const handle: FetchAdapter = createFetchAdapter();

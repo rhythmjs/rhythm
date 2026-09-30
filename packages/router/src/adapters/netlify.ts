@@ -1,18 +1,9 @@
-import type { Rhythm } from "@rhythmjs/rhythm";
-import { toFetchHandler } from "../fetch";
-import type { RhythmHttpContext } from "../context";
+import { createFetchAdapter, setRuntime, type AdapterOptions, type FetchAdapter } from "./base";
 
-export function handle<TContext extends RhythmHttpContext, TProviders extends object = {}>(
-  app: Rhythm<RhythmHttpContext, TContext, TProviders>,
-): (request: Request, context?: unknown) => Promise<Response> {
-  const handler = toFetchHandler(app);
-  return (request: Request, context?: unknown): Promise<Response> => {
-    if (context !== undefined) {
-      Object.defineProperty(request, "runtime", {
-        value: { name: "netlify", netlify: { context } },
-        configurable: true,
-      });
-    }
-    return handler(request);
-  };
-}
+export type { AdapterOptions };
+
+export const handle: FetchAdapter<[context?: unknown]> = createFetchAdapter((request, context) => {
+  if (context !== undefined) {
+    setRuntime(request, { name: "netlify", netlify: { context } });
+  }
+});

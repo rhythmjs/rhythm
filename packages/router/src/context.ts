@@ -1,3 +1,11 @@
+import type { ServerRuntimeContext } from "srvx";
+
+export type RhythmRuntime = ServerRuntimeContext;
+
+export function getRuntime(request: Request): RhythmRuntime | undefined {
+  return (request as { runtime?: RhythmRuntime }).runtime;
+}
+
 export type RhythmResponseBody =
   | string
   | ArrayBuffer

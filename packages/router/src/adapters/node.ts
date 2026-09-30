@@ -1,25 +1,20 @@
 import { toNodeHandler } from "srvx/node";
-import type { NodeHttpHandler } from "srvx";
+import type { NodeHttp1Handler, NodeHttp2Handler } from "srvx";
 import type { Rhythm } from "@rhythmjs/rhythm";
-import { toFetchHandler } from "../fetch";
-import { errorToResponse } from "../serve";
+import { createFetchAdapter, type AdapterOptions } from "./base";
 import type { RhythmHttpContext } from "../context";
 
-export interface NodeHandlerOptions {
+export interface NodeHandlerOptions extends AdapterOptions {
   maxRequestBodySize?: number;
 }
 
-export function handle<TContext extends RhythmHttpContext, TProviders extends object = {}>(
+export type NodeHandler = NodeHttp1Handler & NodeHttp2Handler;
+
+const fetchHandle = createFetchAdapter();
+
+export function getRequestListener<TContext extends RhythmHttpContext, TProviders extends object = {}>(
   app: Rhythm<RhythmHttpContext, TContext, TProviders>,
   options: NodeHandlerOptions = {},
-): NodeHttpHandler {
-  const handler = toFetchHandler(app);
-  const safeHandler = async (request: Request): Promise<Response> => {
-    try {
-      return await handler(request);
-    } catch (error) {
-      return errorToResponse(error);
-    }
-  };
-  return toNodeHandler(safeHandler, options);
+): NodeHandler {
+  return toNodeHandler(fetchHandle(app, options), options) as NodeHandler;
 }

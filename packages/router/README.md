@@ -77,15 +77,17 @@ Everything above (`RhythmRouter`, `ctx.response`, etc.) is runtime-agnostic. Two
 
 ## Deploying per runtime
 
-One app definition; each runtime has its own adapter under `@rhythmjs/router/adapters/*`, hono-style: import `handle` from your target's adapter and export what the platform expects.
+One app definition; each runtime has its own adapter under `@rhythmjs/router/adapters/*`, hono-style: import from your target's adapter and export what the platform expects. Runtimes that speak web-standard `Request`/`Response` natively (Bun, Deno, Vercel) can equally use `toFetchHandler(app)` from `@rhythmjs/router/fetch` — their adapters are aliases for it.
 
-**Node**
+Every adapter maps errors thrown in the middleware chain to a response (`500`, or the error's own `status`) instead of crashing, and accepts `{ onError }` to replace that mapping: `handle(app, { onError: (error) => new Response("down", { status: 503 }) })`. Platform metadata (Cloudflare `env`/`ctx`, the Netlify context) is readable in middleware via `getRuntime(ctx.request)` from `@rhythmjs/router/context`.
+
+**Node** — `getRequestListener` returns a listener for your own `node:http` server:
 
 ```ts
 import { createServer } from "node:http";
-import { handle } from "@rhythmjs/router/adapters/node";
+import { getRequestListener } from "@rhythmjs/router/adapters/node";
 
-createServer(handle(app, { maxRequestBodySize: 1024 * 1024 })).listen(3000);
+createServer(getRequestListener(app, { maxRequestBodySize: 1024 * 1024 })).listen(3000);
 ```
 
 (Or skip the adapter entirely and use `serve(app, { port: 3000 })`.)

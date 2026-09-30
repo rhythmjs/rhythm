@@ -1,6 +1,7 @@
+import { createServer } from "node:http";
 import { Rhythm } from "@rhythmjs/rhythm";
 import type { RhythmHttpContext } from "@rhythmjs/router/context";
-import { serve } from "@rhythmjs/router/serve";
+import { getRequestListener } from "@rhythmjs/router/adapters/node";
 import { RhythmRouter } from "@rhythmjs/router";
 
 interface User {
@@ -42,6 +43,8 @@ const app = new Rhythm<RhythmHttpContext>({ name: "app" })
     ctx.error(404);
   });
 
-const server = serve(app, { port: 3000 });
-await server.ready();
-console.log(`listening on ${server.url}`);
+const port = 3000;
+
+createServer(getRequestListener(app)).listen(port, () => {
+  console.log(`listening on http://localhost:${port}`);
+});
