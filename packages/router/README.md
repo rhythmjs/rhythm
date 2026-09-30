@@ -49,7 +49,20 @@ Everything above (`RhythmRouter`, `ctx.response`, etc.) is runtime-agnostic. Two
 - **`serve(app, options)`** (`@rhythmjs/router/serve`) — starts a server on Node, Bun, or Deno with one identical call; srvx picks the runtime implementation via conditional exports. On Node, requests are lazy: method, url, headers, and body materialize only when middleware touches them.
 - **`toFetchHandler(app)`** (`@rhythmjs/router/fetch`) — the universal `(Request) => Promise<Response>` handler, for platforms that invoke you per request instead of letting you own a listener.
 
-`serve()` accepts every srvx `ServerOptions` field except `fetch`: `port`, `hostname`, `tls` (HTTPS/HTTP2), `maxRequestBodySize` (an over-limit body read is answered with `413`), `reusePort`, `gracefulShutdown`, plus the three extension points below. Errors thrown in the middleware chain are answered with `500` (or the error's own `status`) without crashing the process; override the mapping with `options.error`.
+`serve()` accepts every srvx `ServerOptions` field except `fetch`: `port`, `hostname`, `tls` (HTTPS/HTTP2), `maxRequestBodySize` (an over-limit body read is answered with `413`), `reusePort`, `gracefulShutdown`, plus the extension points below. Errors thrown in the middleware chain are answered with `500` (or the error's own `status`) without crashing the process; override the mapping with `options.error`.
+
+### Static assets
+
+The `static` option serves files via [srvx's static middleware](https://srvx.h3.dev) before the app runs; a request no folder answers falls through to your routes. It takes one folder config or an array — folders are probed in order, first match wins:
+
+```ts
+serve(app, {
+  port: 3000,
+  static: [{ dir: "dist/client", maxAge: 31536000, immutable: true }, { dir: "public" }],
+});
+```
+
+Each entry is srvx's `StaticMiddlewareOptions`, unchanged — `dir`, `dotfiles` (only `.well-known` is served by default), precompressed `.br`/`.gz` variants (`encodings`), on-the-fly compression (`compress`, on by default), `ETag`/`Last-Modified` revalidation with `304`s (on by default), `maxAge`/`immutable` cache control, and byte ranges. Every folder serves at the site root. `middleware` you pass runs before and wraps the static handlers, so CORS or logging cover asset responses too. Node, Bun, and Deno are all supported — the middleware reads files through `node:fs`, which Bun and Deno provide natively.
 
 ### Extending: CORS, WebSockets, and similar
 

@@ -1,7 +1,7 @@
-import { createServer } from "node:http";
+import { join } from "node:path";
 import { Rhythm } from "@rhythmjs/rhythm";
 import type { RhythmHttpContext } from "@rhythmjs/router/context";
-import { getRequestListener } from "@rhythmjs/router/adapters/node";
+import { serve } from "@rhythmjs/router/serve";
 import { RhythmRouter } from "@rhythmjs/router";
 
 interface User {
@@ -36,15 +36,15 @@ const app = new Rhythm<RhythmHttpContext>({ name: "app" })
   })
   .use(apiRouter.middleware())
   .use(async (ctx) => {
-    if (new URL(ctx.request.url).pathname === "/") {
-      ctx.text("Welcome to the API!");
-      return;
-    }
     ctx.error(404);
   });
 
-const port = 3000;
-
-createServer(getRequestListener(app)).listen(port, () => {
-  console.log(`listening on http://localhost:${port}`);
+serve(app, {
+  port: 3000,
+  static: [
+    { dir: join(import.meta.dirname, "..", "public") },
+    { dir: join(import.meta.dirname, "..", "assets"), maxAge: 3600 },
+  ],
 });
+
+console.log("listening on http://localhost:3000");

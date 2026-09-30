@@ -6,13 +6,16 @@ import {
   type ServerOptions,
   type ServerPlugin,
 } from "srvx";
+import { staticMiddleware, type StaticMiddlewareOptions } from "srvx/static";
 import type { Rhythm } from "@rhythmjs/rhythm";
 import { toFetchHandler } from "./fetch";
 import type { RhythmHttpContext } from "./context";
 
-export type { ErrorHandler, Server, ServerMiddleware, ServerPlugin };
+export type { ErrorHandler, Server, ServerMiddleware, ServerPlugin, StaticMiddlewareOptions };
 
-export type RhythmServeOptions = Omit<ServerOptions, "fetch">;
+export interface RhythmServeOptions extends Omit<ServerOptions, "fetch"> {
+  static?: StaticMiddlewareOptions | StaticMiddlewareOptions[];
+}
 
 export const errorToResponse: ErrorHandler = (error) => {
   const status = (error as { status?: number }).status ?? (error as { statusCode?: number }).statusCode ?? 500;
@@ -28,9 +31,12 @@ export function serve<TContext extends RhythmHttpContext, TProviders extends obj
   app: Rhythm<RhythmHttpContext, TContext, TProviders>,
   options: RhythmServeOptions = {},
 ): Server {
+  const { static: staticOptions, ...serverOptions } = options;
+  const assets = staticOptions === undefined ? [] : [staticOptions].flat().map(staticMiddleware);
   return srvxServe({
     error: errorToResponse,
-    ...options,
+    ...serverOptions,
+    middleware: [...(serverOptions.middleware ?? []), ...assets],
     fetch: toFetchHandler(app),
   });
 }
