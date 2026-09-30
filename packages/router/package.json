@@ -1,6 +1,6 @@
 {
   "name": "@rhythmjs/router",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "HTTP router for the Rhythm middleware kernel, matching with rou3, with Bun, Node, and Deno adapters.",
   "homepage": "https://rhythm.js.org/router",
   "license": "ISC",
