@@ -1,6 +1,6 @@
 import { compose } from "@rhythmjs/rhythm/compose";
 import type { DeriveMiddleware, Middleware, NextFn } from "@rhythmjs/rhythm/types";
-import { createNode, insertRoute, joinPath, lookupRoute, type TreeNode } from "./radix-tree";
+import { addRoute, createRouter, findRoute, type RouterContext } from "rou3";
 import type { RhythmHttpContext } from "./context";
 
 export interface RhythmRouterContext {
@@ -27,6 +27,13 @@ type Entry =
   | { kind: "route"; method: HttpMethod; path: string; handlers: Middleware<any>[] };
 
 type RouteHandler<TContext> = Middleware<TContext & RhythmRouterContext>;
+
+export function joinPath(prefix: string, path: string): string {
+  if (!prefix) return path;
+  const trimmedPrefix = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${trimmedPrefix}${normalizedPath}`;
+}
 
 export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext> {
   #options: RhythmRouterOptions;
@@ -110,14 +117,14 @@ export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext
   #compile(): (context: TContext, next?: NextFn<TContext>) => Promise<TContext> {
     type RouteDispatch = (context: TContext & RhythmRouterContext, next?: NextFn<any>) => Promise<unknown>;
 
-    const dispatchFor = (tree: TreeNode<HttpMethod, RouteDispatch>): Middleware<any> => {
+    const dispatchFor = (tree: RouterContext<RouteDispatch>): Middleware<any> => {
       return async (ctx, next) => {
-        const match = lookupRoute(tree, ctx.request.method, new URL(ctx.request.url).pathname);
+        const match = findRoute(tree, ctx.request.method, new URL(ctx.request.url).pathname);
         if (!match) {
           await next();
           return;
         }
-        await match.payload({ ...ctx, params: match.params } as TContext & RhythmRouterContext, next);
+        await match.data({ ...ctx, params: match.params ?? {} } as TContext & RhythmRouterContext, next);
       };
     };
 
@@ -130,11 +137,11 @@ export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext
         i++;
         continue;
       }
-      const tree = createNode<HttpMethod, RouteDispatch>();
+      const tree = createRouter<RouteDispatch>();
       while (i < this.#entries.length) {
         const route = this.#entries[i]!;
         if (route.kind !== "route") break;
-        insertRoute(tree, route.method, route.path, compose(route.handlers) as RouteDispatch);
+        addRoute(tree, route.method, route.path, compose(route.handlers) as RouteDispatch);
         i++;
       }
       stack.push(dispatchFor(tree));

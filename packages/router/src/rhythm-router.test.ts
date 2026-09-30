@@ -36,9 +36,20 @@ describe("RhythmRouter", () => {
     expect(await paramRes.text()).toBe("param:42");
   });
 
-  test("a wildcard route captures the rest of the path under params['*']", async () => {
-    const router = new RhythmRouter().get("/files/*", (ctx) => {
-      ctx.response.body = `file:${ctx.params["*"]}`;
+  test("a nested router mounts via use(child.middleware()) and falls through on miss", async () => {
+    const users = new RhythmRouter({ prefix: "/api/users" }).get("/:id", (ctx) => {
+      ctx.response.body = `user:${ctx.params.id}`;
+    });
+    const api = new RhythmRouter().use(users.middleware()).get("/api/health", (ctx) => ctx.text("ok"));
+
+    const handler = serve(api);
+    expect(await (await handler(new Request("http://localhost/api/users/7"))).text()).toBe("user:7");
+    expect(await (await handler(new Request("http://localhost/api/health"))).text()).toBe("ok");
+  });
+
+  test("a '**:name' wildcard captures the rest of the path under that param", async () => {
+    const router = new RhythmRouter().get("/files/**:path", (ctx) => {
+      ctx.response.body = `file:${ctx.params.path}`;
     });
 
     const res = await serve(router)(new Request("http://localhost/files/docs/readme.md"));
@@ -46,6 +57,21 @@ describe("RhythmRouter", () => {
 
     const unmatched = await serve(router)(new Request("http://localhost/other"));
     expect(await unmatched.text()).toBe("");
+  });
+
+  test("an unnamed '**' wildcard captures the rest under params._, and '*' matches one segment", async () => {
+    const router = new RhythmRouter()
+      .get("/files/**", (ctx) => {
+        ctx.response.body = `file:${ctx.params._}`;
+      })
+      .get("/one/*", (ctx) => {
+        ctx.response.body = `one:${ctx.params["0"]}`;
+      });
+
+    const handler = serve(router);
+    expect(await (await handler(new Request("http://localhost/files/a/b"))).text()).toBe("file:a/b");
+    expect(await (await handler(new Request("http://localhost/one/x"))).text()).toBe("one:x");
+    expect(await (await handler(new Request("http://localhost/one/x/y"))).text()).toBe("");
   });
 
   test("an optional param matches with and without the segment", async () => {
@@ -62,8 +88,8 @@ describe("RhythmRouter", () => {
 
   test("wildcards and optional params work under a prefix", async () => {
     const router = new RhythmRouter({ prefix: "/api" })
-      .get("/files/*", (ctx) => {
-        ctx.response.body = `file:${ctx.params["*"]}`;
+      .get("/files/**:path", (ctx) => {
+        ctx.response.body = `file:${ctx.params.path}`;
       })
       .get("/users/:id?", (ctx) => {
         ctx.response.body = `user:${ctx.params.id ?? "all"}`;

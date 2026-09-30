@@ -33,6 +33,28 @@ describe("fetch-shaped adapters (bun, deno, vercel)", () => {
     }
   });
 
+  test("websocket option diverts upgrade requests and forwards extra args", async () => {
+    const seen: unknown[][] = [];
+    const sentinel = new Response("upgraded");
+    const upgrader = {
+      handleUpgrade(request: Request, ...extra: unknown[]) {
+        seen.push([request.url, ...extra]);
+        return sentinel;
+      },
+    };
+    const handler = handleBun(makeApp(), { websocket: upgrader });
+
+    const upgraded = await handler(
+      new Request("http://localhost/ws", { headers: { upgrade: "websocket" } }),
+      "server-arg",
+    );
+    expect(upgraded).toBe(sentinel);
+    expect(seen).toEqual([["http://localhost/ws", "server-arg"]]);
+
+    const plain = await handler(new Request("http://localhost/ping"));
+    expect(await plain.text()).toBe("pong");
+  });
+
   test("thrown errors map to a response on every adapter, and onError overrides", async () => {
     const app = new Rhythm<RhythmHttpContext>().use(() => {
       throw new Error("boom");

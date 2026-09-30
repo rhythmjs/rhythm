@@ -4,7 +4,6 @@ export default defineConfig({
   pack: {
     entry: {
       "rhythm-router": "src/rhythm-router.ts",
-      "radix-tree": "src/radix-tree.ts",
       context: "src/context.ts",
       fetch: "src/fetch.ts",
       serve: "src/serve.ts",

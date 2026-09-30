@@ -1,7 +1,7 @@
 {
   "name": "@rhythmjs/router",
   "version": "0.0.9",
-  "description": "Radix-tree HTTP router for the Rhythm middleware kernel, with Bun, Node, and Deno adapters.",
+  "description": "HTTP router for the Rhythm middleware kernel, matching with rou3, with Bun, Node, and Deno adapters.",
   "homepage": "https://rhythm.js.org/router",
   "license": "ISC",
   "repository": {
@@ -18,10 +18,6 @@
     ".": {
       "types": "./dist/rhythm-router.d.ts",
       "default": "./dist/rhythm-router.js"
-    },
-    "./radix-tree": {
-      "types": "./dist/radix-tree.d.ts",
-      "default": "./dist/radix-tree.js"
     },
     "./context": {
       "types": "./dist/context.d.ts",
@@ -78,6 +74,7 @@
   },
   "dependencies": {
     "@rhythmjs/rhythm": "workspace:*",
+    "rou3": "^0.11.0",
     "srvx": "^1.0.5"
   },
   "devDependencies": {

@@ -92,6 +92,9 @@ importers:
       '@rhythmjs/rhythm':
         specifier: workspace:*
         version: link:../rhythm
+      rou3:
+        specifier: ^0.11.0
+        version: 0.11.0
       srvx:
         specifier: ^1.0.5
         version: 1.0.5
@@ -1069,6 +1072,10 @@ packages:
   react-is@17.0.2:
     resolution: {integrity: sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w==}
 
+  rou3@0.11.0:
+    resolution: {integrity: sha512-QYkFgNURTMBzmDpfFOpJNscLALbTlmFG/TGl4JVENesWNnrPAt7XHcml56Esb7fprnSRk4iwbgkmpZEPfX5MsA==}
+    engines: {node: '>=20.19.0'}
+
   siginfo@2.0.0:
     resolution: {integrity: sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g==}
 
@@ -1832,6 +1839,8 @@ snapshots:
       react-is: 17.0.2
 
   react-is@17.0.2: {}
+
+  rou3@0.11.0: {}
 
   siginfo@2.0.0: {}
 

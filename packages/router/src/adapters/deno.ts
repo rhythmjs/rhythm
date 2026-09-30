@@ -2,4 +2,4 @@ import { createFetchAdapter, type AdapterOptions, type FetchAdapter } from "./ba
 
 export type { AdapterOptions };
 
-export const handle: FetchAdapter = createFetchAdapter();
+export const handle: FetchAdapter<[info?: unknown]> = createFetchAdapter<[info?: unknown]>();
