@@ -1,6 +1,6 @@
 # @rhythmjs/rhythm
 
-The core composition kernel `@rhythmjs/router` and `@rhythmjs/cli` are built on. Framework-agnostic — no router, no HTTP layer, and never will be.
+The composition kernel at the core of Rhythm, the Bun-native backend framework — the piece `@rhythmjs/router` and `@rhythmjs/cli` are built on. It gives an application its structure — onion middleware, lifecycle-managed providers, encapsulated modules, all checked at compile time — and deliberately nothing else: no router, no HTTP layer, and never will be.
 
 ## Concepts
 

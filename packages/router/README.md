@@ -1,6 +1,6 @@
 # @rhythmjs/router
 
-Web-standard HTTP routing on top of `@rhythmjs/rhythm`. `RhythmRouter` matches routes with [rou3](https://github.com/h3js/rou3), the router that powers h3 (a static segment always wins over a `:param` segment, regardless of registration order), supports prefixes and nested routers, and mounts flat into a parent `Rhythm` app via `.use(router.middleware())`, so an unmatched request correctly falls through to whatever's registered after it.
+The HTTP layer of Rhythm, the Bun-native backend framework: web-standard (`Request`/`Response`) routing on top of the `@rhythmjs/rhythm` kernel, served on `Bun.serve`. `RhythmRouter` matches routes with [rou3](https://github.com/h3js/rou3), the router that powers h3 (a static segment always wins over a `:param` segment, regardless of registration order), supports prefixes and nested routers, and mounts flat into a parent `Rhythm` app via `.use(router.middleware())`, so an unmatched request correctly falls through to whatever's registered after it.
 
 Route patterns follow rou3's conventions: `:name` params (`:name?` optional, `:id(\\d+)` regex-constrained), `*` for one unnamed segment (captured as `params["0"]`), and `**` for the rest of the path (`params._`, or `params.name` with `**:name`). Param values are the raw path segments, undecoded.
 

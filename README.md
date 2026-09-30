@@ -1,6 +1,8 @@
 # rhythmjs
 
-A minimal, type-safe composition kernel: onion-style middleware, lifecycle-managed providers, and encapsulated module registration. The core (`@rhythmjs/rhythm`) is framework-agnostic by design — it has no router, no HTTP layer, and never will; everything else in this monorepo is built on top of it.
+Rhythm is an opinionated, Bun-native backend framework. Applications are built the same way every time — encapsulated modules, lifecycle-managed providers, and onion-style middleware — with every context access checked at compile time: no decorators, no reflection, no DI container.
+
+This repository is the framework's core. `@rhythmjs/rhythm` is the composition kernel — it has no router and no HTTP layer of its own, by design; `@rhythmjs/router` (HTTP) and `@rhythmjs/cli` (command-line apps) are built on top of it, and the rest of the ecosystem (config, http, middleware, security, observability, openapi, ws, tasks, testing) builds on those.
 
 Source: [github.com/rhythmjs/rhythm](https://github.com/rhythmjs/rhythm)
 
