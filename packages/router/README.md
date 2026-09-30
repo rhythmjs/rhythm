@@ -11,7 +11,7 @@ Route patterns follow rou3's conventions: `:name` params (`:name?` optional, `:i
 ```ts
 import { Rhythm } from "@rhythmjs/rhythm";
 import { RhythmRouter } from "@rhythmjs/router";
-import { serve } from "@rhythmjs/router/serve";
+import { toFetchHandler } from "@rhythmjs/router/fetch";
 import type { RhythmHttpContext } from "@rhythmjs/router/context";
 
 const usersRouter = new RhythmRouter({ prefix: "/users" }).get("/:id", (ctx) => {
@@ -19,7 +19,7 @@ const usersRouter = new RhythmRouter({ prefix: "/users" }).get("/:id", (ctx) => 
 });
 
 const app = new Rhythm<RhythmHttpContext>().use(usersRouter.middleware());
-serve(app, { port: 3000 });
+Bun.serve({ port: 3000, fetch: toFetchHandler(app) });
 ```
 
 A fuller runnable version, including nested prefixes and a fallback route, is at [`examples/router`](../../examples/router).
@@ -42,54 +42,57 @@ A fuller runnable version, including nested prefixes and a fallback route, is at
 - `ctx.json/.text/.html(body, status?)`, `ctx.error(status, message?)`, `ctx.redirect(url, status?)` — response helpers built into the context (`createHttpContext` in `@rhythmjs/router/context`).
 - `toFetchHandler(app)` — bridges a `Rhythm` app to a Web-standard `(Request) => Promise<Response>` handler.
 
-## Serving
+## Serving: your Bun.serve, no wrapper
 
-Two primitives turn an app into a server, both coupled to [Bun](https://bun.com) on purpose:
+There is no `serve()` helper and no static-file helper — you write `Bun.serve` in your own `main.ts`, and the package gives you exactly two plain pieces for its `fetch`:
 
-- **`serve(app, options)`** (`@rhythmjs/router/serve`) — starts the app on `Bun.serve` and returns Bun's `Server` (`server.port`, `server.url`, `server.publish`, `server.stop()`).
-- **`toFetchHandler(app)`** (`@rhythmjs/router/fetch`) — the raw `(Request) => Promise<Response>` handler, for composing and testing without a listener.
+- **`toFetchHandler(app)`** (`@rhythmjs/router/fetch`) — the app as a `(Request) => Promise<Response>` handler.
+- **`errorToResponse(error)`** (`@rhythmjs/router/fetch`) — maps a thrown error to a Response: the error's own `status`/`statusCode` when set, else a logged `500`.
 
-`serve()` passes the server fields through to `Bun.serve` — `port`, `hostname`, `unix`, `tls`, `reusePort`, `idleTimeout`, `development`, `maxRequestBodySize` (an over-limit body is rejected without crashing) — plus the extension points below. Every request gets a lazy `request.ip` (from `server.requestIP()`), the field `@rhythmjs/security`'s rate limit and `@rhythmjs/http`'s proxy key off. Errors thrown in the middleware chain are answered with `500` (or the error's own `status`) without crashing the process; override the mapping with `options.error`.
-
-### Static assets
-
-The `static` option serves files with `Bun.file` before the app runs; a request no folder answers falls through to your routes. It takes one folder config or an array — folders are probed in order, first match wins:
+Everything wired, explicitly:
 
 ```ts
-serve(app, {
+import { toFetchHandler, errorToResponse } from "@rhythmjs/router/fetch";
+
+const handler = toFetchHandler(app);
+
+const server = Bun.serve({
   port: 3000,
-  static: [{ dir: "dist/client", maxAge: 31536000, immutable: true }, { dir: "public" }],
+  async fetch(request, srv) {
+    // Optional: expose the client address as request.ip — the field
+    // @rhythmjs/security's rate limit and @rhythmjs/http's proxy key off.
+    Object.defineProperty(request, "ip", {
+      configurable: true,
+      get: () => srv.requestIP(request)?.address,
+    });
+    try {
+      return await handler(request);
+    } catch (error) {
+      return errorToResponse(error);
+    }
+  },
 });
 ```
 
-Each entry (`StaticMiddlewareOptions`, also exported from `@rhythmjs/router/static`) takes `dir`, `prefix` (mount point, default the site root), `index` (default `index.html`, served for directory paths), `maxAge`/`immutable` cache control, and `ETag` revalidation with `304`s (`etag`, on by default). Content types come from `Bun.file`. Path traversal is normalized away. `middleware` you pass runs before and wraps the static handlers, so CORS or logging cover asset responses too.
+Since `Bun.serve` is yours, all of Bun's server options (`port`, `hostname`, `unix`, `tls`, `idleTimeout`, `maxRequestBodySize`, `reusePort`, `development`, …) and the `Server` itself (`server.url`, `server.publish`, `server.stop()`) are used directly — nothing is proxied or renamed.
 
-### Extending: CORS, WebSockets, and similar
+### Static files
 
-- **`middleware`** — serve middlewares (`(request, next) => Response`) run around the whole app, the natural place for CORS, logging, or auth gates:
+Use Bun's built-in `routes` — nothing to import:
 
-  ```ts
-  serve(app, {
-    middleware: [
-      async (request, next) => {
-        if (request.method === "OPTIONS")
-          return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*" } });
-        const response = await next();
-        response.headers.set("access-control-allow-origin", "*");
-        return response;
-      },
-    ],
-  });
-  ```
+```ts
+const server = Bun.serve({
+  routes: {
+    "/": new Response(Bun.file("public/index.html")), // one known file
+    "/static/*": { dir: "./public" },                 // a whole folder
+  },
+  fetch: toFetchHandler(app), // everything else is the app
+});
+```
 
-- **`upgrade` + `websocket`** — the seams for Bun's native WebSockets, shaped for [`@rhythmjs/ws`](https://github.com/rhythmjs/ws). Requests with an `upgrade: websocket` header divert to `upgrade(request, server)` before the app runs (return a `Response` to reject, or `undefined` after `server.upgrade()`); `websocket` is Bun's behavior object, passed through:
+Directory routes (`{ dir }`, path must end in `/*`) come with content types, `Last-Modified` + weak `ETag` with `304` revalidation, `Range` requests, `index.html` for trailing-slash requests (and a `301` to add the slash), and `404` for missing or non-canonical (traversal) paths.
 
-  ```ts
-  import { websocket } from "@rhythmjs/ws";
+> **Warning — never mount a directory at `"/*"`.** A directory route answers its own `404`s: with `"/*": { dir }`, every URL that isn't a file dies there and your app's `fetch` never runs. Keep folders on dedicated prefixes (`/static/*`, `/assets/*`) and let `fetch` stay the app's. For root-level files (favicon, robots.txt), map each one explicitly: `"/favicon.svg": new Response(Bun.file("public/favicon.svg"))`.
+### WebSockets
 
-  serve(app, { upgrade: ws.upgrade, websocket: websocket() });
-  ```
-
-- **`error`** — replace the default error-to-response mapping.
-
-Anything else fetch-shaped composes with the raw primitive: `toFetchHandler(app)` from `@rhythmjs/router/fetch`.
+[`@rhythmjs/ws`](https://github.com/rhythmjs/ws) plugs into the same hand-wired `fetch`: its `upgrade()` returns `null` synchronously for non-websocket requests, so it composes as `ws.upgrade(request, srv) ?? handler(request)`, with `websocket: ws.websocket` on the same `Bun.serve` call.

@@ -1,6 +1,6 @@
 {
   "name": "@rhythmjs/router",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "Bun-native HTTP router for the Rhythm middleware kernel, matching with rou3 and serving with Bun.serve.",
   "homepage": "https://rhythm.js.org/router",
   "license": "ISC",
@@ -27,14 +27,6 @@
       "types": "./dist/fetch.d.ts",
       "default": "./dist/fetch.js"
     },
-    "./serve": {
-      "types": "./dist/serve.d.ts",
-      "default": "./dist/serve.js"
-    },
-    "./static": {
-      "types": "./dist/static.d.ts",
-      "default": "./dist/static.js"
-    },
     "./adapters/context": {
       "types": "./dist/context.d.ts",
       "default": "./dist/context.js"
@@ -45,7 +37,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "bun build src/rhythm-router.ts src/context.ts src/fetch.ts src/serve.ts src/static.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
+    "build": "bun build src/rhythm-router.ts src/context.ts src/fetch.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
     "prepublishOnly": "bun run typecheck && bun test && bun run build",
     "typecheck": "tsc --noEmit",
     "test": "bun test"

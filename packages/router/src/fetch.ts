@@ -15,3 +15,14 @@ export function toFetchHandler<TContext extends RhythmHttpContext, TProviders ex
     });
   };
 }
+
+/** Maps a thrown error to a Response: the error's own `status`/`statusCode` when set, else 500 (logged). */
+export function errorToResponse(error: unknown): Response {
+  const status = (error as { status?: number }).status ?? (error as { statusCode?: number }).statusCode ?? 500;
+  const message = status >= 500 ? "Internal Server Error" : error instanceof Error ? error.message : String(error);
+  if (status >= 500) console.error(error);
+  return new Response(message, {
+    status,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+  });
+}

@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { Rhythm } from "@rhythmjs/rhythm";
 import type { RhythmHttpContext } from "@rhythmjs/router/context";
-import { serve } from "@rhythmjs/router/serve";
+import { errorToResponse, toFetchHandler } from "@rhythmjs/router/fetch";
 import { RhythmRouter } from "@rhythmjs/router";
 
 interface User {
@@ -39,12 +39,32 @@ const app = new Rhythm<RhythmHttpContext>({ name: "app" })
     ctx.error(404);
   });
 
-serve(app, {
+// No wrapper, no helpers: static files are Bun's built-in routes — a
+// Response for a known file, { dir } for a folder under a prefix.
+// Warning: never mount a directory at "/*" — a directory route answers its
+// own 404s, so misses would never reach the app's fetch below.
+const handler = toFetchHandler(app);
+const publicDir = join(import.meta.dirname, "..", "public");
+const assetsDir = join(import.meta.dirname, "..", "assets");
+
+const server = Bun.serve({
   port: 3000,
-  static: [
-    { dir: join(import.meta.dirname, "..", "public") },
-    { dir: join(import.meta.dirname, "..", "assets"), maxAge: 3600 },
-  ],
+  routes: {
+    "/": new Response(Bun.file(join(publicDir, "index.html"))),
+    "/assets/*": { dir: assetsDir },
+  },
+  async fetch(request, srv) {
+    // Expose the client address as request.ip for rate limits and proxies.
+    Object.defineProperty(request, "ip", {
+      configurable: true,
+      get: () => srv.requestIP(request)?.address,
+    });
+    try {
+      return await handler(request);
+    } catch (error) {
+      return errorToResponse(error);
+    }
+  },
 });
 
-console.log("listening on http://localhost:3000");
+console.log(`listening on ${server.url}`);
