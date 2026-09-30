@@ -1,6 +1,6 @@
 {
   "name": "rhythmjs",
-  "version": "0.0.10",
+  "version": "0.0.12",
   "private": true,
   "description": "A minimal, type-safe onion-middleware and provider composition kernel. Bun workspaces, bun test, bun build.",
   "keywords": [],
