@@ -110,8 +110,6 @@ describe("hand-wired Bun.serve", () => {
 
     const server = Bun.serve({
       port: 0,
-      // Static files are Bun's own directory routes: content types, weak
-      // ETags with 304s, ranges, and traversal rejection all built in.
       routes: { "/static/*": { dir: publicDir } },
       async fetch(request, srv) {
         Object.defineProperty(request, "ip", {

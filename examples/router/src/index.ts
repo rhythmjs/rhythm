@@ -31,7 +31,7 @@ const app = new Rhythm<RhythmHttpContext>({ name: "app" })
     const startedAt = Date.now();
     await next();
     ctx.logger.info(
-      `${ctx.request.method} ${new URL(ctx.request.url).pathname} - ${ctx.response.status} in ${Date.now() - startedAt}ms`,
+      `${ctx.request.method} ${new URL(ctx.request.url).pathname} ${ctx.response.status} in ${Date.now() - startedAt}ms`,
     );
   })
   .use(apiRouter.middleware())
@@ -39,10 +39,6 @@ const app = new Rhythm<RhythmHttpContext>({ name: "app" })
     ctx.error(404);
   });
 
-// No wrapper, no helpers: static files are Bun's built-in routes — a
-// Response for a known file, { dir } for a folder under a prefix.
-// Warning: never mount a directory at "/*" — a directory route answers its
-// own 404s, so misses would never reach the app's fetch below.
 const handler = toFetchHandler(app);
 const publicDir = join(import.meta.dirname, "..", "public");
 const assetsDir = join(import.meta.dirname, "..", "assets");
@@ -54,7 +50,6 @@ const server = Bun.serve({
     "/assets/*": { dir: assetsDir },
   },
   async fetch(request, srv) {
-    // Expose the client address as request.ip for rate limits and proxies.
     Object.defineProperty(request, "ip", {
       configurable: true,
       get: () => srv.requestIP(request)?.address,

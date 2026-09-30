@@ -1,6 +1,6 @@
 # Rhythm monorepo
 
-This is a Bun workspace (`packages/*`, `examples/*`) built entirely with Bun tooling — there is no Vite+, Turborepo, or pnpm here. The ecosystem is coupled to Bun on purpose: no multi-runtime adapters, no portability shims.
+This is a Bun workspace (`packages/*`, `examples/*`) built entirely with Bun tooling; there is no Vite+, Turborepo, or pnpm here. The ecosystem is coupled to Bun on purpose: no multi-runtime adapters, no portability shims.
 
 - `bun install` after pulling changes.
 - `bun test` at the root runs every package's tests; `bun test` inside a package scopes to it.

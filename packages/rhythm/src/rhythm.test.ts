@@ -23,7 +23,7 @@ describe("onion middleware", () => {
     expect(order).toEqual(["a:before", "b:before", "c", "b:after", "a:after"]);
   });
 
-  test("next() is pure koa style - context extension happens through derive(), not next(extra)", async () => {
+  test("next() is pure koa style: context extension happens through derive(), not next(extra)", async () => {
     const app = new Rhythm<{}>().use(derive(() => ({ user: "Alice" }))).use((ctx) => {
       expect(ctx.user).toBe("Alice");
     });
@@ -122,7 +122,7 @@ describe("register()", () => {
   test.skip("type system: a non-exported field is not visible on the parent's context", () => {
     const child = new Rhythm<{}>().use(derive(() => ({ secret: "hidden" })));
     new Rhythm<{}>().register(child).use((ctx) => {
-      // @ts-expect-error default register() stays sealed - `secret` must not be visible without exportValue
+      // @ts-expect-error default register() stays sealed: `secret` must not be visible without exportValue
       return ctx.secret;
     });
   });
@@ -160,7 +160,7 @@ describe("derive()", () => {
     expect(result.user).toBe("user-of-t1");
   });
 
-  test("derive() is positional - middleware registered before it doesn't see the value on the way down", async () => {
+  test("derive() is positional: middleware registered before it doesn't see the value on the way down", async () => {
     const seen: unknown[] = [];
     const app = new Rhythm<{}>()
       .use(async (ctx, next) => {
@@ -294,7 +294,7 @@ describe("provide()", () => {
     expect(disposedWith).toHaveProperty("prompt");
   });
 
-  test("provide() is positional - middleware registered before it doesn't see the value on the way down", async () => {
+  test("provide() is positional: middleware registered before it doesn't see the value on the way down", async () => {
     const seen: unknown[] = [];
     const app = new Rhythm<{}>()
       .use(async (ctx, next) => {

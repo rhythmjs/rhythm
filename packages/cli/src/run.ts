@@ -20,8 +20,6 @@ export function toCliHandler<TContext extends RhythmCliContext, TProviders exten
   };
 }
 
-// Bun's console is an async iterable over stdin lines — that iterator plus
-// stdout writes is the whole prompt IO, no readline needed.
 function defaultPromptIO(): RhythmPromptIO {
   const lines = console[Symbol.asyncIterator]();
   return {

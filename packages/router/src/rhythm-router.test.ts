@@ -149,7 +149,7 @@ describe("RhythmRouter", () => {
     expect(events).toEqual(["auth:before", "handler:7", "auth:after"]);
   });
 
-  test("a route middleware can guard without extending - next() is pure koa style", async () => {
+  test("a route middleware can guard without extending: next() is pure koa style", async () => {
     const router = new RhythmRouter().get(
       "/users/:id",
       async (ctx, next) => {
@@ -199,7 +199,7 @@ describe("RhythmRouter", () => {
     expect(redirect.headers.get("location")).toBe("/users/1");
   });
 
-  test("registration order is execution order - use() after a route doesn't wrap that route", async () => {
+  test("registration order is execution order: use() after a route doesn't wrap that route", async () => {
     const events: string[] = [];
     const router = new RhythmRouter()
       .get("/ping", (ctx) => {
@@ -280,7 +280,7 @@ describe("RhythmRouter", () => {
       expect(await unprefixed.text()).toBe("");
     });
 
-    test("nesting is wiring only - a parent's prefix does not re-prefix a mounted child's paths", async () => {
+    test("nesting is wiring only: a parent's prefix does not re-prefix a mounted child's paths", async () => {
       const usersRouter = new RhythmRouter({ prefix: "/v1" }).get("/users/:id", (ctx) => {
         ctx.response.body = ctx.params.id;
       });
@@ -436,7 +436,7 @@ describe("RhythmRouter", () => {
     });
   });
 
-  test("a router is a controller, not a module - it exposes no register() or provide()", () => {
+  test("a router is a controller, not a module: it exposes no register() or provide()", () => {
     const router = new RhythmRouter();
 
     expect("register" in router).toBe(false);
@@ -461,7 +461,7 @@ describe("RhythmRouter", () => {
       expect(entries[2]).toEqual({ kind: "route", method: "POST", path: "/api/users/:id", handlers: [handler] });
     });
 
-    test("returns a copy - mutating the result does not affect dispatch", async () => {
+    test("returns a copy: mutating the result does not affect dispatch", async () => {
       const router = new RhythmRouter().get("/ping", (ctx) => {
         ctx.response.body = "pong";
       });

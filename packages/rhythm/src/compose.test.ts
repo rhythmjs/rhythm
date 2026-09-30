@@ -37,7 +37,7 @@ describe("compose()", () => {
     expect(order).toEqual(["a:before", "b:before", "c", "b:after", "a:after"]);
   });
 
-  test("next() takes no arguments - every middleware shares the same context object", async () => {
+  test("next() takes no arguments: every middleware shares the same context object", async () => {
     const fn = compose<{ seen: string[] }>([
       async (ctx, next) => {
         const downstream = await next();

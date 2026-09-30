@@ -30,7 +30,7 @@ describe("RhythmCli", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  test("falls through when the command path doesn't match - no output, default exit code", async () => {
+  test("falls through when the command path doesn't match: no output, default exit code", async () => {
     const cli = new RhythmCli().command("deploy :environment", (ctx) => {
       ctx.response.print("deployed");
     });
@@ -59,7 +59,7 @@ describe("RhythmCli", () => {
     expect(events).toEqual(["auth:before", "handler:staging", "auth:after"]);
   });
 
-  test("registration order is execution order - use() after a command doesn't wrap that command", async () => {
+  test("registration order is execution order: use() after a command doesn't wrap that command", async () => {
     const events: string[] = [];
     const cli = new RhythmCli()
       .command("greet", (ctx) => {
@@ -112,7 +112,7 @@ describe("RhythmCli", () => {
     expect(events).toEqual(["early", "middleware", "late"]);
   });
 
-  test("a cli is a controller, not a module - it exposes no register() or provide()", () => {
+  test("a cli is a controller, not a module: it exposes no register() or provide()", () => {
     const cli = new RhythmCli();
 
     expect("register" in cli).toBe(false);
@@ -141,7 +141,7 @@ describe("RhythmCli", () => {
       expect((await run(["add", "origin"])).stdout).toBe("");
     });
 
-    test("nesting is wiring only - a parent's prefix does not re-prefix a mounted child's commands", async () => {
+    test("nesting is wiring only: a parent's prefix does not re-prefix a mounted child's commands", async () => {
       const remoteCli = new RhythmCli({ prefix: "git remote" }).command("add :name", (ctx) => {
         ctx.response.print(ctx.args.name);
       });
