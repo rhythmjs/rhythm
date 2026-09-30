@@ -1,10 +1,9 @@
 # Rhythm monorepo
 
-This pnpm workspace is managed entirely by Vite+ (the `vp` CLI). There is no Turborepo; workspace tasks are defined in each package's `vite.config.ts` under `run.tasks` and executed with `vp run`.
+This is a Bun workspace (`packages/*`, `examples/*`) built entirely with Bun tooling — there is no Vite+, Turborepo, or pnpm here. The ecosystem is coupled to Bun on purpose: no multi-runtime adapters, no portability shims.
 
-Vite+ behavior can differ from your training data. Read the bundled docs at `node_modules/vite-plus/docs` (they match the installed version) before changing tooling configuration, and note that `vp <name>` runs a built-in command while `vp run <name>` runs a script or task — they are not interchangeable.
-
-- `vp install` after pulling changes.
-- `vp run -r build` / `vp run -r typecheck` / `vp run -r test` run workspace tasks in dependency order with caching; root `package.json` scripts wrap these.
-- `vp check` formats, lints, and type-checks; `vp lint` / `vp fmt` run individually. Lint and format settings live only in the root `vite.config.ts`.
-- Task caching is automatic (inputs/outputs are tracked); `vp cache clean` resets it if results look stale.
+- `bun install` after pulling changes.
+- `bun test` at the root runs every package's tests; `bun test` inside a package scopes to it.
+- `bun run build` runs each `@rhythmjs/*` package's build (`bun build` for JS + `tsc -p tsconfig.build.json` for declarations) in dependency order via `bun run --filter`.
+- `bun run typecheck` type-checks every workspace (`tsc --noEmit`); run `bun run build` first, since packages resolve each other's declarations through `dist/`.
+- `bun run check` = prettier check + oxlint + typecheck. `bun run fmt` formats. Prettier config is the root `.prettierrc.json`.

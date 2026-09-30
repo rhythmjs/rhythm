@@ -21,16 +21,17 @@ Open its `index.html` directly, or serve the folder with any static host. No ins
 
 ## Development
 
-This is a Turborepo-managed pnpm workspace.
+This is a Bun workspace.
 
 ```sh
-pnpm install
-pnpm build           # turbo run build — all packages (vp pack)
-pnpm test            # turbo run test — all packages (vp test / vitest)
-pnpm typecheck       # turbo run typecheck — all packages
+bun install
+bun run build      # all packages, in dependency order (bun build + tsc declarations)
+bun test           # every package's tests
+bun run typecheck  # tsc --noEmit in every workspace (build first)
+bun run check      # prettier --check + oxlint + typecheck
 ```
 
-To publish the packages to npm, run `pnpm build` and then `pnpm -r publish` from the repository root.
+To publish the packages to npm, run `bun run build` and then publish each package from its directory.
 
 ## License
 

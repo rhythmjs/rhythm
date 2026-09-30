@@ -1,20 +1,5 @@
-import type { ServerRuntimeContext } from "srvx";
-
-export type RhythmRuntime = ServerRuntimeContext;
-
-export function getRuntime(request: Request): RhythmRuntime | undefined {
-  return (request as { runtime?: RhythmRuntime }).runtime;
-}
-
 export type RhythmResponseBody =
-  | string
-  | ArrayBuffer
-  | Uint8Array
-  | Blob
-  | FormData
-  | URLSearchParams
-  | ReadableStream<Uint8Array>
-  | null;
+  string | ArrayBuffer | Uint8Array | Blob | FormData | URLSearchParams | ReadableStream<Uint8Array> | null;
 
 export class RhythmResponse {
   status: number = 200;

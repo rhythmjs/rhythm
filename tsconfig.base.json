@@ -5,7 +5,7 @@
     "moduleResolution": "bundler",
     "moduleDetection": "force",
     "lib": ["ESNext"],
-    "types": ["node"],
+    "types": ["node", "bun"],
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,

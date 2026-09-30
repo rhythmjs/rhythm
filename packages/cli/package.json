@@ -1,7 +1,7 @@
 {
   "name": "@rhythmjs/cli",
   "version": "0.0.10",
-  "description": "Command-line argument parsing, prompts, and command routing for the Rhythm middleware kernel.",
+  "description": "Command-line argument parsing, prompts, and command routing for the Rhythm middleware kernel, running on Bun.",
   "homepage": "https://rhythm.js.org/cli",
   "license": "ISC",
   "repository": {
@@ -27,26 +27,32 @@
       "types": "./dist/prompt.d.ts",
       "default": "./dist/prompt.js"
     },
-    "./adapters/bun": {
-      "types": "./dist/adapters/bun.d.ts",
-      "default": "./dist/adapters/bun.js"
+    "./context": {
+      "types": "./dist/context.d.ts",
+      "default": "./dist/context.js"
     },
-    "./adapters/deno": {
-      "types": "./dist/adapters/deno.d.ts",
-      "default": "./dist/adapters/deno.js"
-    },
-    "./adapters/node": {
-      "types": "./dist/adapters/node.d.ts",
-      "default": "./dist/adapters/node.js"
+    "./run": {
+      "types": "./dist/run.d.ts",
+      "default": "./dist/run.js"
     },
     "./adapters/context": {
-      "types": "./dist/adapters/context.d.ts",
-      "default": "./dist/adapters/context.js"
+      "types": "./dist/context.d.ts",
+      "default": "./dist/context.js"
+    },
+    "./adapters/bun": {
+      "types": "./dist/run.d.ts",
+      "default": "./dist/run.js"
     },
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "scripts": {
+    "build": "bun build src/rhythm-cli.ts src/argv.ts src/prompt.ts src/context.ts src/run.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
+    "prepublishOnly": "bun run typecheck && bun test && bun run build",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@rhythmjs/rhythm": "workspace:*"
@@ -54,10 +60,9 @@
   "devDependencies": {
     "@types/bun": "^1.4.2",
     "@types/node": "^26.6.3",
-    "typescript": "^7.0.2",
-    "vite-plus": "^1.0.0"
+    "typescript": "^7.0.2"
   },
   "engines": {
-    "node": ">=20.19.0"
+    "bun": ">=1.2.0"
   }
 }

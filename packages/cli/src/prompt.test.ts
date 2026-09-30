@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect, test } from "bun:test";
 import { createPrompt, type RhythmPromptIO } from "./prompt";
 
 function fakeIO(answers: string[]): { io: RhythmPromptIO; output: () => string } {

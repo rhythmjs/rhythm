@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect, test } from "bun:test";
 import { RhythmCliResponse, type RhythmCliContext } from "./context";
 
 describe("RhythmCliResponse", () => {

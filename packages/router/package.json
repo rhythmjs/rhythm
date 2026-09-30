@@ -1,7 +1,7 @@
 {
   "name": "@rhythmjs/router",
   "version": "0.0.10",
-  "description": "HTTP router for the Rhythm middleware kernel, matching with rou3, with Bun, Node, and Deno adapters.",
+  "description": "Bun-native HTTP router for the Rhythm middleware kernel, matching with rou3 and serving with Bun.serve.",
   "homepage": "https://rhythm.js.org/router",
   "license": "ISC",
   "repository": {
@@ -31,37 +31,9 @@
       "types": "./dist/serve.d.ts",
       "default": "./dist/serve.js"
     },
-    "./adapters/node": {
-      "types": "./dist/adapters/node.d.ts",
-      "default": "./dist/adapters/node.js"
-    },
-    "./adapters/bun": {
-      "types": "./dist/adapters/bun.d.ts",
-      "default": "./dist/adapters/bun.js"
-    },
-    "./adapters/deno": {
-      "types": "./dist/adapters/deno.d.ts",
-      "default": "./dist/adapters/deno.js"
-    },
-    "./adapters/vercel": {
-      "types": "./dist/adapters/vercel.d.ts",
-      "default": "./dist/adapters/vercel.js"
-    },
-    "./adapters/netlify": {
-      "types": "./dist/adapters/netlify.d.ts",
-      "default": "./dist/adapters/netlify.js"
-    },
-    "./adapters/cloudflare": {
-      "types": "./dist/adapters/cloudflare.d.ts",
-      "default": "./dist/adapters/cloudflare.js"
-    },
-    "./adapters/aws-lambda": {
-      "types": "./dist/adapters/aws-lambda.d.ts",
-      "default": "./dist/adapters/aws-lambda.js"
-    },
-    "./adapters/service-worker": {
-      "types": "./dist/adapters/service-worker.d.ts",
-      "default": "./dist/adapters/service-worker.js"
+    "./static": {
+      "types": "./dist/static.d.ts",
+      "default": "./dist/static.js"
     },
     "./adapters/context": {
       "types": "./dist/context.d.ts",
@@ -72,17 +44,22 @@
   "publishConfig": {
     "access": "public"
   },
+  "scripts": {
+    "build": "bun build src/rhythm-router.ts src/context.ts src/fetch.ts src/serve.ts src/static.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
+    "prepublishOnly": "bun run typecheck && bun test && bun run build",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
   "dependencies": {
     "@rhythmjs/rhythm": "workspace:*",
-    "rou3": "^0.11.0",
-    "srvx": "^1.0.5"
+    "rou3": "^0.11.0"
   },
   "devDependencies": {
+    "@types/bun": "^1.2.0",
     "@types/node": "^26.6.3",
-    "typescript": "^7.0.2",
-    "vite-plus": "^1.0.0"
+    "typescript": "^7.0.2"
   },
   "engines": {
-    "node": ">=20.19.0"
+    "bun": ">=1.2.0"
   }
 }

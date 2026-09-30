@@ -32,12 +32,18 @@
   "publishConfig": {
     "access": "public"
   },
+  "scripts": {
+    "build": "bun build src/rhythm.ts src/compose.ts src/types.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
+    "prepublishOnly": "bun run typecheck && bun test && bun run build",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
   "devDependencies": {
+    "@types/bun": "^1.4.2",
     "@types/node": "^26.6.3",
-    "typescript": "^7.0.2",
-    "vite-plus": "^1.0.0"
+    "typescript": "^7.0.2"
   },
   "engines": {
-    "node": ">=20.19.0"
+    "bun": ">=1.2.0"
   }
 }

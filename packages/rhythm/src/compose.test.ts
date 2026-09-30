@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect, test } from "bun:test";
 import { compose } from "./compose";
 import type { NextFn } from "./types";
 

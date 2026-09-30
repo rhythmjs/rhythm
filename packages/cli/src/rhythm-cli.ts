@@ -1,6 +1,6 @@
 import { compose } from "@rhythmjs/rhythm/compose";
 import type { DeriveMiddleware, Middleware, NextFn } from "@rhythmjs/rhythm/types";
-import type { RhythmCliContext } from "./adapters/context";
+import type { RhythmCliContext } from "./context";
 import { parseArgv } from "./argv";
 
 export interface RhythmCliCommandContext {
@@ -32,8 +32,7 @@ export interface RhythmCliOptions {
 }
 
 type Entry =
-  | { kind: "middleware"; fn: Middleware<any> }
-  | { kind: "command"; segments: string[]; handlers: Middleware<any>[] };
+  { kind: "middleware"; fn: Middleware<any> } | { kind: "command"; segments: string[]; handlers: Middleware<any>[] };
 
 export class RhythmCli<TContext extends RhythmCliContext = RhythmCliContext> {
   #options: RhythmCliOptions;

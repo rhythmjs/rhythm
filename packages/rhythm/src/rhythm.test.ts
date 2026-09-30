@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect, test } from "bun:test";
 import { derive, Rhythm } from "./rhythm";
 
 describe("onion middleware", () => {

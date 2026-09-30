@@ -1,8 +1,6 @@
-import * as readline from "node:readline";
-import { Readable } from "node:stream";
 import type { Rhythm } from "@rhythmjs/rhythm";
-import { parseArgv } from "../argv";
-import { createPrompt as createPromptWithIO, type RhythmPrompt, type RhythmPromptIO } from "../prompt";
+import { parseArgv } from "./argv";
+import { createPrompt as createPromptWithIO, type RhythmPrompt, type RhythmPromptIO } from "./prompt";
 import { RhythmCliResponse, type RhythmCliContext } from "./context";
 
 export function toCliHandler<TContext extends RhythmCliContext, TProviders extends object = {}>(
@@ -11,7 +9,7 @@ export function toCliHandler<TContext extends RhythmCliContext, TProviders exten
   const run = app.callback();
   return async (argv: string[]): Promise<number> => {
     const { flags } = parseArgv(argv);
-    const stdin = process.stdin.isTTY ? null : (Readable.toWeb(process.stdin) as unknown as ReadableStream<Uint8Array>);
+    const stdin = process.stdin.isTTY ? null : (Bun.stdin.stream() as unknown as ReadableStream<Uint8Array>);
 
     const ctx = await run({ argv, flags, stdin, response: new RhythmCliResponse() });
 
@@ -22,17 +20,22 @@ export function toCliHandler<TContext extends RhythmCliContext, TProviders exten
   };
 }
 
-function defaultPromptIO(
-  input: NodeJS.ReadableStream = process.stdin,
-  output: NodeJS.WritableStream = process.stdout,
-): RhythmPromptIO {
-  const rl = readline.createInterface({ input, output });
+// Bun's console is an async iterable over stdin lines — that iterator plus
+// stdout writes is the whole prompt IO, no readline needed.
+function defaultPromptIO(): RhythmPromptIO {
+  const lines = console[Symbol.asyncIterator]();
   return {
-    ask: (query) => new Promise((resolve) => rl.question(query, resolve)),
-    write: (text) => {
-      output.write(text);
+    ask: async (query) => {
+      process.stdout.write(query);
+      const { value } = await lines.next();
+      return value ?? "";
     },
-    close: () => rl.close(),
+    write: (text) => {
+      process.stdout.write(text);
+    },
+    close: () => {
+      void lines.return?.();
+    },
   };
 }
 

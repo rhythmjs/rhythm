@@ -2,7 +2,7 @@
   "name": "rhythmjs",
   "version": "0.0.10",
   "private": true,
-  "description": "A minimal, type-safe onion-middleware and provider composition kernel.",
+  "description": "A minimal, type-safe onion-middleware and provider composition kernel. Bun workspaces, bun test, bun build.",
   "keywords": [],
   "homepage": "https://rhythm.js.org",
   "license": "ISC",
@@ -12,18 +12,27 @@
     "url": "git+https://github.com/rhythmjs/rhythm.git"
   },
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
   "scripts": {
-    "build": "vp run -r build",
-    "typecheck": "vp run -r typecheck",
-    "test": "vp run -r test",
-    "lint": "vp lint",
-    "fmt": "vp fmt",
-    "fmt:check": "vp fmt --check",
-    "check": "vp check"
+    "test": "bun test",
+    "build": "bun run --filter '@rhythmjs/*' build",
+    "typecheck": "bun run --filter '*' typecheck",
+    "lint": "oxlint packages/*/src examples/*/src",
+    "fmt": "prettier --write \"packages/*/src/**/*.ts\" \"examples/*/src/**/*.ts\" \"packages/*/*.json\" \"examples/*/*.json\" \"*.json\"",
+    "fmt:check": "prettier --check \"packages/*/src/**/*.ts\" \"examples/*/src/**/*.ts\" \"packages/*/*.json\" \"examples/*/*.json\" \"*.json\"",
+    "check": "bun run fmt:check && bun run lint && bun run typecheck"
   },
   "devDependencies": {
-    "typescript": "^7.0.2",
-    "vite-plus": "^1.0.0"
+    "@types/bun": "^1.4.2",
+    "@types/node": "^26.6.3",
+    "oxlint": "^1.0.0",
+    "prettier": "^3.5.0",
+    "typescript": "^7.0.2"
   },
-  "packageManager": "pnpm@10.33.2"
+  "engines": {
+    "bun": ">=1.2.0"
+  }
 }

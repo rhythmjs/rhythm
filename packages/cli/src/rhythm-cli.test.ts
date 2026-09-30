@@ -1,11 +1,9 @@
-import { describe, expect, test, vi } from "vite-plus/test";
+import { describe, expect, test } from "bun:test";
 import { Rhythm } from "@rhythmjs/rhythm";
 import type { DeriveMiddleware, Middleware } from "@rhythmjs/rhythm/types";
-import { RhythmCliResponse, type RhythmCliContext } from "./adapters/context";
-import { toCliHandler } from "./adapters/bun";
+import { RhythmCliResponse, type RhythmCliContext } from "./context";
+import { toCliHandler } from "./run";
 import { RhythmCli } from "./rhythm-cli";
-
-vi.stubGlobal("Bun", { stdin: { stream: () => new ReadableStream<Uint8Array>() } });
 
 const host = (cli: RhythmCli<any>) => new Rhythm<RhythmCliContext>().use(cli.middleware());
 

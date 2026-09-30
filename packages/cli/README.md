@@ -2,15 +2,15 @@
 
 CLI command routing on top of `@rhythmjs/rhythm`. `RhythmCli` matches commands against argv positional tokens with a simple linear scan (appropriate for the handful-to-dozens of commands a real CLI has), supports prefixes and nested command groups, and mounts flat into a parent `Rhythm` app via `.use(cli.commands())`, so an unmatched command correctly falls through to whatever's registered after it.
 
-`RhythmCli` is not an app and does not extend `Rhythm` — it is a controller that compiles commands and middleware down to a single middleware (`.commands()`). It shares the core middleware contract (`compose`, `Middleware`, `next(extra)`), but has no `provide()` or `register()`, and it can't be served on its own: a `Rhythm` app is always the host that owns the lifecycle and the adapters.
+`RhythmCli` is not an app and does not extend `Rhythm` — it is a controller that compiles commands and middleware down to a single middleware (`.commands()`). It shares the core middleware contract (`compose`, `Middleware`, `next(extra)`), but has no `provide()` or `register()`, and it can't be served on its own: a `Rhythm` app is always the host that owns the lifecycle.
 
 ## Example
 
 ```ts
 import { Rhythm } from "@rhythmjs/rhythm";
 import { RhythmCli } from "@rhythmjs/cli";
-import { toCliHandler } from "@rhythmjs/cli/adapters/bun";
-import type { RhythmCliContext } from "@rhythmjs/cli/adapters/context";
+import { toCliHandler } from "@rhythmjs/cli/run";
+import type { RhythmCliContext } from "@rhythmjs/cli/context";
 
 const cli = new RhythmCli().command("deploy :environment", (ctx) => {
   ctx.response.print(`deploying to ${ctx.args.environment}`);
@@ -40,12 +40,8 @@ A fuller runnable version, including nested command groups and interactive promp
 - `.use(fn)` — plain middleware. `.use(child)` — mount a nested `RhythmCli` (prefixes compose).
 - `.commands()` — this CLI as a plain middleware, for mounting into a `Rhythm` app via `.use()`; the cli's only way onto a runtime. Note: mounting a _cli_ into a _cli_ must use `.use(child)`, not `.use(child.commands())` — an opaque middleware can't have the parent's prefix applied to its commands.
 - `toCliHandler(app)` — bridges a `Rhythm` app to `(argv: string[]) => Promise<number>`.
-- `createPrompt()` — a readline-backed `{ text, confirm, select, multiSelect }` prompt, for use inside a `.provide()` on the host app.
+- `createPrompt()` — a `{ text, confirm, select, multiSelect }` prompt reading lines through Bun's async-iterable `console`, for use inside a `.provide()` on the host app.
 
-## Runtime adapters
+## Running on Bun
 
-`RhythmCli` itself is runtime-agnostic; only stdin access and the interactive prompt's I/O touch a specific runtime.
-
-- **`@rhythmjs/cli/adapters/bun`** — uses `Bun.stdin.stream()`, Bun's own native stdin API.
-- **`@rhythmjs/cli/adapters/node`** — the portable version: `process.stdin` + `node:stream`'s `Readable.toWeb()`, and `node:readline` for `createPrompt()`. No Bun-specific API at all.
-- **`@rhythmjs/cli/adapters/deno`** — re-exports the Node adapter unchanged. Deno's Node-compat layer implements `process.stdin`, `Readable.toWeb`/`fromWeb`, and `node:readline`, so the same code works correctly under Deno.
+`@rhythmjs/cli/run` is the runtime half, coupled to Bun on purpose: `toCliHandler(app)` reads piped input through `Bun.stdin.stream()` (a TTY leaves `ctx.stdin` null), and `createPrompt()` reads answer lines through Bun's async-iterable `console`.

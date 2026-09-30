@@ -1,6 +1,6 @@
 import { Rhythm } from "@rhythmjs/rhythm";
-import { createPrompt, toCliHandler } from "@rhythmjs/cli/adapters/bun";
-import type { RhythmCliContext } from "@rhythmjs/cli/adapters/context";
+import { createPrompt, toCliHandler } from "@rhythmjs/cli/run";
+import type { RhythmCliContext } from "@rhythmjs/cli/context";
 import type { RhythmPrompt } from "@rhythmjs/cli/prompt";
 import { RhythmCli } from "@rhythmjs/cli";
 

@@ -39,21 +39,21 @@ A fuller runnable version, including nested prefixes and a fallback route, is at
 - `.get/.post/.put/.patch/.delete(path, ...handlers)` — register a route; `path` may contain `:param` segments.
 - `.use(fn)` — plain middleware; it takes only functions, so a nested router mounts as `.use(child.middleware())`.
 - `.middleware()` — this router compiled to a plain middleware: the one form that mounts anywhere, into a `Rhythm` app or into another router. Because the compiled form is opaque, the mounting router's prefix is not applied to it — give the child its full prefix.
-- `ctx.json/.text/.html(body, status?)`, `ctx.error(status, message?)`, `ctx.redirect(url, status?)` — response helpers built into the context by the adapters (`createHttpContext` in `@rhythmjs/router/context`).
+- `ctx.json/.text/.html(body, status?)`, `ctx.error(status, message?)`, `ctx.redirect(url, status?)` — response helpers built into the context (`createHttpContext` in `@rhythmjs/router/context`).
 - `toFetchHandler(app)` — bridges a `Rhythm` app to a Web-standard `(Request) => Promise<Response>` handler.
 
 ## Serving
 
-Everything above (`RhythmRouter`, `ctx.response`, etc.) is runtime-agnostic. Two primitives turn an app into a server, both built on [srvx](https://srvx.h3.dev):
+Two primitives turn an app into a server, both coupled to [Bun](https://bun.com) on purpose:
 
-- **`serve(app, options)`** (`@rhythmjs/router/serve`) — starts a server on Node, Bun, or Deno with one identical call; srvx picks the runtime implementation via conditional exports. On Node, requests are lazy: method, url, headers, and body materialize only when middleware touches them.
-- **`toFetchHandler(app)`** (`@rhythmjs/router/fetch`) — the universal `(Request) => Promise<Response>` handler, for platforms that invoke you per request instead of letting you own a listener.
+- **`serve(app, options)`** (`@rhythmjs/router/serve`) — starts the app on `Bun.serve` and returns Bun's `Server` (`server.port`, `server.url`, `server.publish`, `server.stop()`).
+- **`toFetchHandler(app)`** (`@rhythmjs/router/fetch`) — the raw `(Request) => Promise<Response>` handler, for composing and testing without a listener.
 
-`serve()` accepts every srvx `ServerOptions` field except `fetch`: `port`, `hostname`, `tls` (HTTPS/HTTP2), `maxRequestBodySize` (an over-limit body read is answered with `413`), `reusePort`, `gracefulShutdown`, plus the extension points below. Errors thrown in the middleware chain are answered with `500` (or the error's own `status`) without crashing the process; override the mapping with `options.error`.
+`serve()` passes the server fields through to `Bun.serve` — `port`, `hostname`, `unix`, `tls`, `reusePort`, `idleTimeout`, `development`, `maxRequestBodySize` (an over-limit body is rejected without crashing) — plus the extension points below. Every request gets a lazy `request.ip` (from `server.requestIP()`), the field `@rhythmjs/security`'s rate limit and `@rhythmjs/http`'s proxy key off. Errors thrown in the middleware chain are answered with `500` (or the error's own `status`) without crashing the process; override the mapping with `options.error`.
 
 ### Static assets
 
-The `static` option serves files via [srvx's static middleware](https://srvx.h3.dev) before the app runs; a request no folder answers falls through to your routes. It takes one folder config or an array — folders are probed in order, first match wins:
+The `static` option serves files with `Bun.file` before the app runs; a request no folder answers falls through to your routes. It takes one folder config or an array — folders are probed in order, first match wins:
 
 ```ts
 serve(app, {
@@ -62,11 +62,11 @@ serve(app, {
 });
 ```
 
-Each entry is srvx's `StaticMiddlewareOptions`, unchanged — `dir`, `dotfiles` (only `.well-known` is served by default), precompressed `.br`/`.gz` variants (`encodings`), on-the-fly compression (`compress`, on by default), `ETag`/`Last-Modified` revalidation with `304`s (on by default), `maxAge`/`immutable` cache control, and byte ranges. Every folder serves at the site root. `middleware` you pass runs before and wraps the static handlers, so CORS or logging cover asset responses too. Node, Bun, and Deno are all supported — the middleware reads files through `node:fs`, which Bun and Deno provide natively.
+Each entry (`StaticMiddlewareOptions`, also exported from `@rhythmjs/router/static`) takes `dir`, `prefix` (mount point, default the site root), `index` (default `index.html`, served for directory paths), `maxAge`/`immutable` cache control, and `ETag` revalidation with `304`s (`etag`, on by default). Content types come from `Bun.file`. Path traversal is normalized away. `middleware` you pass runs before and wraps the static handlers, so CORS or logging cover asset responses too.
 
 ### Extending: CORS, WebSockets, and similar
 
-- **`middleware`** — srvx middlewares (`(request, next) => Response`) run around the whole app, the natural place for CORS, logging, or auth gates:
+- **`middleware`** — serve middlewares (`(request, next) => Response`) run around the whole app, the natural place for CORS, logging, or auth gates:
 
   ```ts
   serve(app, {
@@ -82,90 +82,14 @@ Each entry is srvx's `StaticMiddlewareOptions`, unchanged — `dir`, `dotfiles` 
   });
   ```
 
-- **`plugins`** — a plugin receives the live srvx `Server`, the hook for anything below fetch, WebSockets included ([crossws](https://crossws.h3.dev) attaches here; on Node the raw server is at `server.node.server`):
+- **`upgrade` + `websocket`** — the seams for Bun's native WebSockets, shaped for [`@rhythmjs/ws`](https://github.com/rhythmjs/ws). Requests with an `upgrade: websocket` header divert to `upgrade(request, server)` before the app runs (return a `Response` to reject, or `undefined` after `server.upgrade()`); `websocket` is Bun's behavior object, passed through:
 
   ```ts
-  serve(app, { plugins: [(server) => wireWebSockets(server)] });
+  import { websocket } from "@rhythmjs/ws";
+
+  serve(app, { upgrade: ws.upgrade, websocket: websocket() });
   ```
 
 - **`error`** — replace the default error-to-response mapping.
 
-## Deploying per runtime
-
-One app definition; each runtime has its own adapter under `@rhythmjs/router/adapters/*`, hono-style: import from your target's adapter and export what the platform expects. Runtimes that speak web-standard `Request`/`Response` natively (Bun, Deno, Vercel) can equally use `toFetchHandler(app)` from `@rhythmjs/router/fetch` — their adapters are aliases for it.
-
-Every adapter maps errors thrown in the middleware chain to a response (`500`, or the error's own `status`) instead of crashing, and accepts `{ onError }` to replace that mapping: `handle(app, { onError: (error) => new Response("down", { status: 503 }) })`. Platform metadata (Cloudflare `env`/`ctx`, the Netlify context) is readable in middleware via `getRuntime(ctx.request)` from `@rhythmjs/router/context`.
-
-Fetch-shaped adapters also accept `{ websocket }` — anything with a `handleUpgrade(request, ...extra)` method, such as a [crossws](https://crossws.h3.dev) instance or an `@rhythmjs/ws` adapter. Requests carrying an `upgrade: websocket` header divert to it (with the runtime's extra arguments — Bun's `server`, Deno's `info`, Cloudflare's `env`/`ctx` — forwarded) before the app runs; every other request is untouched.
-
-**Node** — `getRequestListener` returns a listener for your own `node:http` server:
-
-```ts
-import { createServer } from "node:http";
-import { getRequestListener } from "@rhythmjs/router/adapters/node";
-
-createServer(getRequestListener(app, { maxRequestBodySize: 1024 * 1024 })).listen(3000);
-```
-
-(Or skip the adapter entirely and use `serve(app, { port: 3000 })`.)
-
-**Bun**
-
-```ts
-import { handle } from "@rhythmjs/router/adapters/bun";
-
-Bun.serve({ port: 3000, fetch: handle(app) });
-```
-
-**Deno**
-
-```ts
-import { handle } from "@rhythmjs/router/adapters/deno";
-
-Deno.serve({ port: 3000 }, handle(app));
-```
-
-**Vercel** — in a catch-all route file:
-
-```ts
-import { handle } from "@rhythmjs/router/adapters/vercel";
-
-const handler = handle(app);
-export const GET = handler;
-export const POST = handler; // …and the other methods you serve
-```
-
-**Cloudflare Workers** — `env` and `ctx` are exposed to middleware as `ctx.request.runtime.cloudflare`:
-
-```ts
-import { handle } from "@rhythmjs/router/adapters/cloudflare";
-
-export default { fetch: handle(app) };
-```
-
-**AWS Lambda** — API Gateway v1/v2 events, translated by srvx:
-
-```ts
-import { handle } from "@rhythmjs/router/adapters/aws-lambda";
-
-export const lambda = handle(app);
-```
-
-**Netlify Edge Functions** — the Netlify context is exposed as `ctx.request.runtime.netlify`:
-
-```ts
-import { handle } from "@rhythmjs/router/adapters/netlify";
-
-export default handle(app);
-export const config = { path: "/*" };
-```
-
-**Service workers**
-
-```ts
-import { handle } from "@rhythmjs/router/adapters/service-worker";
-
-addEventListener("fetch", handle(app));
-```
-
-Any other fetch-based runtime works with the raw primitive: `toFetchHandler(app)` from `@rhythmjs/router/fetch`.
+Anything else fetch-shaped composes with the raw primitive: `toFetchHandler(app)` from `@rhythmjs/router/fetch`.
