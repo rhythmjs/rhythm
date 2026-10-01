@@ -59,6 +59,23 @@
         "typescript": "^7.0.2",
       },
     },
+    "packages/rhythmjs": {
+      "name": "rhythmjs",
+      "version": "0.0.12",
+      "bin": {
+        "rhythmjs": "./dist/bin.js",
+        "rhythm": "./dist/bin.js",
+      },
+      "dependencies": {
+        "@rhythmjs/cli": "workspace:*",
+        "@rhythmjs/rhythm": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.4.2",
+        "@types/node": "^26.6.3",
+        "typescript": "^7.0.2",
+      },
+    },
     "packages/router": {
       "name": "@rhythmjs/router",
       "version": "0.0.12",
@@ -169,6 +186,8 @@
     "oxlint": ["oxlint@1.86.0", "", { "optionalDependencies": { "@oxlint/binding-android-arm-eabi": "1.86.0", "@oxlint/binding-android-arm64": "1.86.0", "@oxlint/binding-darwin-arm64": "1.86.0", "@oxlint/binding-darwin-x64": "1.86.0", "@oxlint/binding-freebsd-x64": "1.86.0", "@oxlint/binding-linux-arm-gnueabihf": "1.86.0", "@oxlint/binding-linux-arm-musleabihf": "1.86.0", "@oxlint/binding-linux-arm64-gnu": "1.86.0", "@oxlint/binding-linux-arm64-musl": "1.86.0", "@oxlint/binding-linux-ppc64-gnu": "1.86.0", "@oxlint/binding-linux-riscv64-gnu": "1.86.0", "@oxlint/binding-linux-riscv64-musl": "1.86.0", "@oxlint/binding-linux-s390x-gnu": "1.86.0", "@oxlint/binding-linux-x64-gnu": "1.86.0", "@oxlint/binding-linux-x64-musl": "1.86.0", "@oxlint/binding-openharmony-arm64": "1.86.0", "@oxlint/binding-win32-arm64-msvc": "1.86.0", "@oxlint/binding-win32-ia32-msvc": "1.86.0", "@oxlint/binding-win32-x64-msvc": "1.86.0" }, "peerDependencies": { "oxlint-tsgolint": ">=7.0.2003", "vite-plus": "*" }, "optionalPeers": ["oxlint-tsgolint", "vite-plus"], "bin": { "oxlint": "bin/oxlint" } }, "sha512-og0lhgvZfgGF//gOOmZXvtr+GmBbAGEnbEhv/QUg7UW2Wi4wHMnJbnMD+zuHgPdJxdklfgpPupdlAaAySyxrZg=="],
 
     "prettier": ["prettier@3.9.9", "", { "bin": { "prettier": "bin/prettier.cjs" } }, "sha512-Z/CJHIkdujO/OtN7nXUii0Rf3VT5SRuhjBA82Xvu2XhBUgX3nhP67T0LHceBdQLex7OOFGTox+Q5Yg8Jk2Qivg=="],
+
+    "rhythmjs": ["rhythmjs@workspace:packages/rhythmjs"],
 
     "rou3": ["rou3@0.11.0", "", {}, "sha512-QYkFgNURTMBzmDpfFOpJNscLALbTlmFG/TGl4JVENesWNnrPAt7XHcml56Esb7fprnSRk4iwbgkmpZEPfX5MsA=="],
 

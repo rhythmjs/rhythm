@@ -1,5 +1,5 @@
 {
-  "name": "rhythmjs",
+  "name": "rhythm-monorepo",
   "version": "0.0.12",
   "private": true,
   "description": "A minimal, type-safe onion-middleware and provider composition kernel. Bun workspaces, bun test, bun build.",

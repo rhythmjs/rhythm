@@ -11,20 +11,41 @@ function toSegments(command: string): string[] {
   return command.trim().split(/\s+/).filter(Boolean);
 }
 
+const isOptional = (segment: string) => segment.startsWith(":") && segment.endsWith("?");
+const isCatchAll = (segment: string) => segment === "**";
+
 function matchCommand(pattern: string[], positionals: string[]): Record<string, string> | null {
-  if (pattern.length !== positionals.length) return null;
+  const catchAll = isCatchAll(pattern.at(-1)!);
+  const fixed = catchAll ? pattern.slice(0, -1) : pattern;
+  const required = fixed.filter((segment) => !isOptional(segment)).length;
+  if (positionals.length < required || (!catchAll && positionals.length > fixed.length)) return null;
 
   const params: Record<string, string> = {};
-  for (let i = 0; i < pattern.length; i++) {
-    const segment = pattern[i]!;
-    const token = positionals[i]!;
+  for (let i = 0; i < fixed.length; i++) {
+    const segment = fixed[i]!;
+    const token = positionals[i];
     if (segment.startsWith(":")) {
-      params[segment.slice(1)] = token;
+      if (token !== undefined) params[segment.slice(1, isOptional(segment) ? -1 : undefined)] = token;
     } else if (segment !== token) {
       return null;
     }
   }
+  if (catchAll && positionals.length > fixed.length) {
+    params._ = positionals.slice(fixed.length).join(" ");
+  }
   return params;
+}
+
+function assertValidPattern(path: string, segments: string[]): void {
+  const rank = (segment: string) => (isCatchAll(segment) ? 2 : isOptional(segment) ? 1 : 0);
+  for (let i = 1; i < segments.length; i++) {
+    if (rank(segments[i]!) < rank(segments[i - 1]!)) {
+      throw new TypeError(`optional params and a catch-all must come last, in that order, in command "${path}"`);
+    }
+  }
+  if (segments.filter(isCatchAll).length > 1) {
+    throw new TypeError(`command "${path}" has more than one catch-all`);
+  }
 }
 
 export interface RhythmCliOptions {
@@ -61,7 +82,9 @@ export class RhythmCli<TContext extends RhythmCliContext = RhythmCliContext> {
   ): this;
   command(path: string, ...handlers: Middleware<TContext & RhythmCliCommandContext>[]): this;
   command(path: string, ...handlers: Middleware<any>[]): this {
-    this.#entries.push({ kind: "command", segments: [...this.#prefixSegments, ...toSegments(path)], handlers });
+    const segments = toSegments(path);
+    assertValidPattern(path, segments);
+    this.#entries.push({ kind: "command", segments: [...this.#prefixSegments, ...segments], handlers });
     return this;
   }
 

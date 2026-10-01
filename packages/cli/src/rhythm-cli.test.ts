@@ -30,6 +30,37 @@ describe("RhythmCli", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  test("a trailing :param? is optional: absent when omitted, captured when given", async () => {
+    const cli = new RhythmCli().command("new :name?", (ctx) => {
+      ctx.response.print(`name=${ctx.args.name ?? "none"}`);
+    });
+    const run = collect(host(cli));
+
+    expect((await run(["new"])).stdout).toBe("name=none");
+    expect((await run(["new", "app"])).stdout).toBe("name=app");
+    expect((await run(["new", "app", "extra"])).stdout).toBe("");
+  });
+
+  test("a required param after an optional one is rejected", () => {
+    expect(() => new RhythmCli().command("new :name? :dir", () => {})).toThrow("must come last");
+  });
+
+  test("a trailing ** catch-all captures the remaining positionals in args._, joined by spaces", async () => {
+    const cli = new RhythmCli().command("run :script **", (ctx) => {
+      ctx.response.print(`${ctx.args.script}|${ctx.args._ ?? "none"}`);
+    });
+    const run = collect(host(cli));
+
+    expect((await run(["run", "build"])).stdout).toBe("build|none");
+    expect((await run(["run", "build", "a", "b"])).stdout).toBe("build|a b");
+    expect((await run(["run"])).stdout).toBe("");
+  });
+
+  test("a catch-all must be last and unique", () => {
+    expect(() => new RhythmCli().command("run ** :x", () => {})).toThrow("must come last");
+    expect(() => new RhythmCli().command("run ** **", () => {})).toThrow();
+  });
+
   test("falls through when the command path doesn't match: no output, default exit code", async () => {
     const cli = new RhythmCli().command("deploy :environment", (ctx) => {
       ctx.response.print("deployed");

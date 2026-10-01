@@ -36,7 +36,7 @@ A fuller runnable version, including nested command groups and interactive promp
 ## API
 
 - `new RhythmCli(options?)`: `options.prefix` (space-separated, e.g. `"remote"`).
-- `.command(path, ...handlers)`: register a command; `path` is space-separated and may contain `:param` tokens (e.g. `"deploy :environment"`).
+- `.command(path, ...handlers)`: register a command; `path` is space-separated and may contain `:param` tokens (e.g. `"deploy :environment"`). A trailing `:param?` is optional (e.g. `"new :name?"`): `ctx.args.param` is left out when the token is absent. Optional params must come last. A trailing `**` is a catch-all, like the router: it captures the remaining positionals into `ctx.args._`, joined by spaces, and is absent when there are none (e.g. `"run :script **"`). Order is required, then optional, then at most one catch-all.
 - `.use(fn)`: plain middleware. `.use(child)`: mount a nested `RhythmCli` (prefixes compose).
 - `.commands()`: this CLI as a plain middleware, for mounting into a `Rhythm` app via `.use()`; the cli's only way onto a runtime. Note: mounting a _cli_ into a _cli_ must use `.use(child)`, not `.use(child.commands())`, because an opaque middleware can't have the parent's prefix applied to its commands.
 - `toCliHandler(app)`: bridges a `Rhythm` app to `(argv: string[]) => Promise<number>`.
