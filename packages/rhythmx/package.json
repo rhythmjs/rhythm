@@ -1,20 +1,19 @@
 {
-  "name": "rhythmjs",
+  "name": "rhythmx",
   "version": "0.0.13",
-  "description": "The Rhythm toolkit: scaffold and manage Rhythm projects from the command line, running on Bun.",
+  "description": "The Rhythm CLI: scaffold and manage Rhythm projects from the command line, running on Bun.",
   "homepage": "https://rhythm.js.org",
   "license": "ISC",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/rhythmjs/rhythm.git",
-    "directory": "packages/rhythmjs"
+    "directory": "packages/rhythmx"
   },
   "files": [
     "dist"
   ],
   "type": "module",
   "bin": {
-    "rhythmjs": "./dist/bin.js",
     "rhythm": "./dist/bin.js"
   },
   "publishConfig": {

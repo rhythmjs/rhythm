@@ -40,7 +40,7 @@
     },
     "packages/cli": {
       "name": "@rhythmjs/cli",
-      "version": "0.0.12",
+      "version": "0.0.13",
       "dependencies": {
         "@rhythmjs/rhythm": "workspace:*",
       },
@@ -52,18 +52,17 @@
     },
     "packages/rhythm": {
       "name": "@rhythmjs/rhythm",
-      "version": "0.0.12",
+      "version": "0.0.13",
       "devDependencies": {
         "@types/bun": "^1.4.2",
         "@types/node": "^26.6.3",
         "typescript": "^7.0.2",
       },
     },
-    "packages/rhythmjs": {
-      "name": "rhythmjs",
-      "version": "0.0.12",
+    "packages/rhythmx": {
+      "name": "rhythmx",
+      "version": "0.0.13",
       "bin": {
-        "rhythmjs": "./dist/bin.js",
         "rhythm": "./dist/bin.js",
       },
       "dependencies": {
@@ -187,7 +186,7 @@
 
     "prettier": ["prettier@3.9.9", "", { "bin": { "prettier": "bin/prettier.cjs" } }, "sha512-Z/CJHIkdujO/OtN7nXUii0Rf3VT5SRuhjBA82Xvu2XhBUgX3nhP67T0LHceBdQLex7OOFGTox+Q5Yg8Jk2Qivg=="],
 
-    "rhythmjs": ["rhythmjs@workspace:packages/rhythmjs"],
+    "rhythmx": ["rhythmx@workspace:packages/rhythmx"],
 
     "rou3": ["rou3@0.11.0", "", {}, "sha512-QYkFgNURTMBzmDpfFOpJNscLALbTlmFG/TGl4JVENesWNnrPAt7XHcml56Esb7fprnSRk4iwbgkmpZEPfX5MsA=="],
 
