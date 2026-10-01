@@ -4,7 +4,7 @@ The HTTP layer of Rhythm, the Bun-native backend framework: web-standard (`Reque
 
 Route patterns follow rou3's conventions: `:name` params (`:name?` optional, `:id(\\d+)` regex-constrained), `*` for one unnamed segment (captured as `params["0"]`), and `**` for the rest of the path (`params._`, or `params.name` with `**:name`). Param values are the raw path segments, undecoded.
 
-`RhythmRouter` is not an app and does not extend `Rhythm`; it is a controller that compiles routes and middleware down to a single middleware (`.middleware()`). It shares the core middleware contract (`compose`, `Middleware`, `next(extra)`), but has no `provide()` or `register()`, and it can't be served on its own: a `Rhythm` app is always the host that owns the lifecycle and the adapters.
+`RhythmRouter` is not an app and does not extend `Rhythm`; it is a controller that compiles routes and middleware down to a single middleware (`.middleware()`). It shares the core middleware contract (`compose`, `Middleware`, `derive`; `next()` takes no arguments, extend the context with `derive()`), but has no `provide()` or `register()`, and it can't be served on its own: a `Rhythm` app is always the host that owns the lifecycle and the adapters.
 
 ## Example
 

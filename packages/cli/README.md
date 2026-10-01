@@ -2,7 +2,7 @@
 
 The command-line layer of Rhythm, the Bun-native backend framework: CLI command routing on top of the `@rhythmjs/rhythm` kernel. `RhythmCli` matches commands against argv positional tokens with a simple linear scan (appropriate for the handful-to-dozens of commands a real CLI has), supports prefixes and nested command groups, and mounts flat into a parent `Rhythm` app via `.use(cli.commands())`, so an unmatched command correctly falls through to whatever's registered after it.
 
-`RhythmCli` is not an app and does not extend `Rhythm`; it is a controller that compiles commands and middleware down to a single middleware (`.commands()`). It shares the core middleware contract (`compose`, `Middleware`, `next(extra)`), but has no `provide()` or `register()`, and it can't be served on its own: a `Rhythm` app is always the host that owns the lifecycle.
+`RhythmCli` is not an app and does not extend `Rhythm`; it is a controller that compiles commands and middleware down to a single middleware (`.commands()`). It shares the core middleware contract (`compose`, `Middleware`, `derive`; `next()` takes no arguments, extend the context with `derive()`), but has no `provide()` or `register()`, and it can't be served on its own: a `Rhythm` app is always the host that owns the lifecycle.
 
 ## Example
 
