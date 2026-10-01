@@ -150,6 +150,56 @@ describe("RhythmCli", () => {
     expect("provide" in cli).toBe(false);
   });
 
+  describe("cli-level middleware is scoped to the cli's own commands", () => {
+    const guard: Middleware<RhythmCliContext> = (ctx) => {
+      ctx.response.printError("login required").exit(1);
+    };
+
+    test("a guard only runs when one of the cli's commands matches", async () => {
+      const cli = new RhythmCli().use(guard).command("deploy :environment", (ctx) => {
+        ctx.response.print("deployed");
+      });
+      const run = collect(host(cli));
+
+      expect((await run(["deploy", "prod"])).exitCode).toBe(1);
+
+      const other = await run(["help"]);
+      expect(other.stderr).toBe("");
+      expect(other.exitCode).toBe(0);
+    });
+
+    test("a middleware is scoped to commands registered after it", async () => {
+      const cli = new RhythmCli()
+        .command("open", (ctx) => {
+          ctx.response.print("open");
+        })
+        .use(guard)
+        .command("closed", (ctx) => {
+          ctx.response.print("closed");
+        });
+      const run = collect(host(cli));
+
+      expect((await run(["open"])).stdout).toBe("open");
+      expect((await run(["closed"])).exitCode).toBe(1);
+    });
+
+    test("a mounted child cli still runs without any command of its own", async () => {
+      const child = new RhythmCli({ prefix: "remote" }).command("add :name", (ctx) => {
+        ctx.response.print(`added ${ctx.args.name}`);
+      });
+      const run = collect(host(new RhythmCli().use(child.middleware())));
+
+      expect((await run(["remote", "add", "origin"])).stdout).toBe("added origin");
+    });
+
+    test("a derive used before commands does not leak into the type middleware() requires", () => {
+      const withUser = (() => {}) as unknown as DeriveMiddleware<RhythmCliContext, { user: string }>;
+      const mounted: Middleware<RhythmCliContext> = new RhythmCli().use(withUser).middleware();
+
+      expect(typeof mounted).toBe("function");
+    });
+  });
+
   describe("prefix", () => {
     test("commands are matched under the configured prefix, and not without it", async () => {
       const cli = new RhythmCli({ prefix: "remote" }).command("add :name", (ctx) => {

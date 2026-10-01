@@ -1,4 +1,5 @@
 import { compose } from "@rhythmjs/rhythm/compose";
+import { sourceOf, withSource } from "@rhythmjs/rhythm/source";
 import type { DeriveMiddleware, Middleware, NextFn } from "@rhythmjs/rhythm/types";
 import type { RhythmCliContext } from "./context";
 import { parseArgv } from "./argv";
@@ -55,7 +56,14 @@ export interface RhythmCliOptions {
 type Entry =
   { kind: "middleware"; fn: Middleware<any> } | { kind: "command"; segments: string[]; handlers: Middleware<any>[] };
 
-export class RhythmCli<TContext extends RhythmCliContext = RhythmCliContext> {
+export type CliEntry =
+  | { readonly kind: "middleware"; readonly fn: Middleware<any> }
+  | { readonly kind: "command"; readonly segments: readonly string[]; readonly handlers: readonly Middleware<any>[] };
+
+export class RhythmCli<
+  TContext extends RhythmCliContext = RhythmCliContext,
+  TInput extends RhythmCliContext = TContext,
+> {
   #options: RhythmCliOptions;
   #entries: Entry[] = [];
 
@@ -63,11 +71,15 @@ export class RhythmCli<TContext extends RhythmCliContext = RhythmCliContext> {
     this.#options = options;
   }
 
+  get entries(): readonly CliEntry[] {
+    return [...this.#entries];
+  }
+
   get #prefixSegments(): string[] {
     return this.#options.prefix ? toSegments(this.#options.prefix) : [];
   }
 
-  use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): RhythmCli<TContext & TExtra>;
+  use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): RhythmCli<TContext & TExtra, TInput>;
   use(fn: Middleware<TContext>): this;
   use(fn: Middleware<TContext>): any {
     if (typeof fn !== "function") throw new TypeError("middleware must be a function!");
@@ -92,6 +104,15 @@ export class RhythmCli<TContext extends RhythmCliContext = RhythmCliContext> {
     type CommandDispatch = (context: TContext & RhythmCliCommandContext, next?: NextFn<any>) => Promise<unknown>;
     type CompiledCommand = { segments: string[]; dispatch: CommandDispatch };
 
+    const groups: CompiledCommand[][] = [];
+    const reaches = (ctx: { argv: readonly string[] }, from: number): boolean => {
+      const { positionals } = parseArgv(ctx.argv as string[]);
+      for (let g = from; g < groups.length; g++) {
+        if (groups[g]!.some((command) => matchCommand(command.segments, positionals))) return true;
+      }
+      return false;
+    };
+
     const dispatchFor = (compiled: CompiledCommand[]): Middleware<any> => {
       return async (ctx, next) => {
         const { positionals } = parseArgv(ctx.argv);
@@ -110,7 +131,9 @@ export class RhythmCli<TContext extends RhythmCliContext = RhythmCliContext> {
     while (i < this.#entries.length) {
       const entry = this.#entries[i]!;
       if (entry.kind === "middleware") {
-        stack.push(entry.fn);
+        const { fn } = entry;
+        const from = groups.length;
+        stack.push(sourceOf(fn) ? fn : (ctx, next) => (reaches(ctx, from) ? fn(ctx, next) : next()));
         i++;
         continue;
       }
@@ -121,16 +144,17 @@ export class RhythmCli<TContext extends RhythmCliContext = RhythmCliContext> {
         compiled.push({ segments: command.segments, dispatch: compose(command.handlers) as CommandDispatch });
         i++;
       }
+      groups.push(compiled);
       stack.push(dispatchFor(compiled));
     }
 
     return compose<TContext>(stack);
   }
 
-  middleware(): Middleware<TContext> {
+  middleware(): Middleware<TInput> {
     const fn = this.#compile();
-    return async (ctx, next) => {
-      await fn(ctx as unknown as TContext, next);
-    };
+    return withSource(async (ctx, next) => {
+      await fn(ctx as unknown as TContext, next as never);
+    }, this);
   }
 }

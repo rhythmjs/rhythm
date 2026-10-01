@@ -1,6 +1,6 @@
 {
   "name": "@rhythmjs/rhythm",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "description": "A minimal, type-safe onion-middleware and provider composition kernel.",
   "homepage": "https://rhythm.js.org/rhythm",
   "license": "ISC",
@@ -23,6 +23,10 @@
       "types": "./dist/compose.d.ts",
       "default": "./dist/compose.js"
     },
+    "./source": {
+      "types": "./dist/source.d.ts",
+      "default": "./dist/source.js"
+    },
     "./types": {
       "types": "./dist/types.d.ts",
       "default": "./dist/types.js"
@@ -33,7 +37,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "bun build src/rhythm.ts src/compose.ts src/types.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
+    "build": "bun build src/rhythm.ts src/compose.ts src/source.ts src/types.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
     "prepublishOnly": "bun run typecheck && bun test && bun run build",
     "typecheck": "tsc --noEmit",
     "test": "bun test"

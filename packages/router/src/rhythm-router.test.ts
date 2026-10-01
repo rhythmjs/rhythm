@@ -238,6 +238,62 @@ describe("RhythmRouter", () => {
     expect(events).toEqual(["early", "middleware", "late"]);
   });
 
+  describe("router-level middleware is scoped to the router's own routes", () => {
+    const guard: Middleware<RhythmHttpContext> = (ctx) => {
+      ctx.error(401, "Unauthorized");
+    };
+
+    const appWith = (router: RhythmRouter<any, any>) =>
+      toFetchHandler(
+        new Rhythm<RhythmHttpContext>().use(router.middleware()).use((ctx) => {
+          ctx.response.body = "downstream";
+        }),
+      );
+
+    test("a guard only answers requests that match one of the router's routes", async () => {
+      const handler = appWith(new RhythmRouter({ prefix: "/projects" }).use(guard).get("/", (ctx) => ctx.json([])));
+
+      expect((await handler(new Request("http://localhost/projects/"))).status).toBe(401);
+
+      const other = await handler(new Request("http://localhost/docs"));
+      expect(other.status).toBe(200);
+      expect(await other.text()).toBe("downstream");
+    });
+
+    test("the method counts: a path match with another method falls through", async () => {
+      const handler = appWith(new RhythmRouter().use(guard).get("/things", (ctx) => ctx.json([])));
+
+      expect((await handler(new Request("http://localhost/things", { method: "DELETE" }))).status).toBe(200);
+      expect((await handler(new Request("http://localhost/things"))).status).toBe(401);
+    });
+
+    test("a middleware is scoped to routes registered after it", async () => {
+      const handler = appWith(
+        new RhythmRouter()
+          .get("/open", (ctx) => ctx.json("open"))
+          .use(guard)
+          .get("/closed", (ctx) => ctx.json("closed")),
+      );
+
+      expect((await handler(new Request("http://localhost/open"))).status).toBe(200);
+      expect((await handler(new Request("http://localhost/closed"))).status).toBe(401);
+    });
+
+    test("a mounted child router still runs without any route of its own", async () => {
+      const child = new RhythmRouter({ prefix: "/users" }).get("/:id", (ctx) => ctx.json(ctx.params.id));
+      const handler = appWith(new RhythmRouter().use(child.middleware()));
+
+      expect(await (await handler(new Request("http://localhost/users/5"))).json()).toBe("5");
+    });
+
+    test("a derive used before routes does not leak into the type the router's middleware() requires", async () => {
+      const withUser = (() => {}) as unknown as DeriveMiddleware<RhythmHttpContext, { user: string }>;
+      const mounted: Middleware<RhythmHttpContext> = new RhythmRouter().use(withUser).middleware();
+
+      expect(typeof mounted).toBe("function");
+    });
+  });
+
   describe("prefix", () => {
     test("routes are matched under the configured prefix", async () => {
       const router = new RhythmRouter({ prefix: "/api" }).get("/users/:id", (ctx) => {

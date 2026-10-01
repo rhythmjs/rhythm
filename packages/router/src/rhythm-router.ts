@@ -1,4 +1,5 @@
 import { compose } from "@rhythmjs/rhythm/compose";
+import { sourceOf, withSource } from "@rhythmjs/rhythm/source";
 import type { DeriveMiddleware, Middleware, NextFn } from "@rhythmjs/rhythm/types";
 import { addRoute, createRouter, findRoute, type RouterContext } from "rou3";
 import type { RhythmHttpContext } from "./context";
@@ -35,7 +36,10 @@ export function joinPath(prefix: string, path: string): string {
   return `${trimmedPrefix}${normalizedPath}`;
 }
 
-export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext> {
+export class RhythmRouter<
+  TContext extends RhythmHttpContext = RhythmHttpContext,
+  TInput extends RhythmHttpContext = TContext,
+> {
   #options: RhythmRouterOptions;
   #entries: Entry[] = [];
 
@@ -43,7 +47,7 @@ export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext
     this.#options = options;
   }
 
-  get #prefix(): string {
+  get #prefixPath(): string {
     return this.#options.prefix ?? "";
   }
 
@@ -51,7 +55,7 @@ export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext
     return [...this.#entries];
   }
 
-  use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): RhythmRouter<TContext & TExtra>;
+  use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): RhythmRouter<TContext & TExtra, TInput>;
   use(fn: Middleware<TContext>): this;
   use(fn: Middleware<TContext>): any {
     if (typeof fn !== "function") throw new TypeError("middleware must be a function!");
@@ -60,7 +64,7 @@ export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext
   }
 
   #route(method: HttpMethod, path: string, handlers: Middleware<any>[]): this {
-    this.#entries.push({ kind: "route", method, path: joinPath(this.#prefix, path), handlers });
+    this.#entries.push({ kind: "route", method, path: joinPath(this.#prefixPath, path), handlers });
     return this;
   }
 
@@ -128,12 +132,22 @@ export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext
       };
     };
 
+    const trees: RouterContext<RouteDispatch>[] = [];
+    const reaches = (ctx: { request: Request }, from: number): boolean => {
+      const method = ctx.request.method;
+      const pathname = new URL(ctx.request.url).pathname;
+      for (let t = from; t < trees.length; t++) if (findRoute(trees[t]!, method, pathname)) return true;
+      return false;
+    };
+
     const stack: Middleware<any>[] = [];
     let i = 0;
     while (i < this.#entries.length) {
       const entry = this.#entries[i]!;
       if (entry.kind === "middleware") {
-        stack.push(entry.fn);
+        const { fn } = entry;
+        const from = trees.length;
+        stack.push(sourceOf(fn) ? fn : (ctx, next) => (reaches(ctx, from) ? fn(ctx, next) : next()));
         i++;
         continue;
       }
@@ -144,16 +158,17 @@ export class RhythmRouter<TContext extends RhythmHttpContext = RhythmHttpContext
         addRoute(tree, route.method, route.path, compose(route.handlers) as RouteDispatch);
         i++;
       }
+      trees.push(tree);
       stack.push(dispatchFor(tree));
     }
 
     return compose<TContext>(stack);
   }
 
-  middleware(): Middleware<TContext> {
+  middleware(): Middleware<TInput> {
     const fn = this.#compile();
-    return async (ctx, next) => {
-      await fn(ctx as unknown as TContext, next);
-    };
+    return withSource(async (ctx, next) => {
+      await fn(ctx as unknown as TContext, next as never);
+    }, this);
   }
 }

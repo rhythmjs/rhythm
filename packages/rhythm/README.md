@@ -65,7 +65,7 @@ const app = new Rhythm<{ userId: string }>()
   .use((ctx) => console.log(`hello, ${ctx.user.name}`));
 ```
 
-`register()` folds the child's `setup()`/`teardown()` into the parent's lifecycle.
+`register()` folds the child's `setup()`/`teardown()` into the parent's lifecycle. The child runs in place: if it ends the chain without calling `next()`, the parent stops there.
 
 ## API
 
@@ -77,6 +77,7 @@ const app = new Rhythm<{ userId: string }>()
 - `.run(input)`: runs `setup()` if needed, dispatches `input` through the middleware chain.
 - `.callback()`: returns the cached, reusable `(input) => Promise<TContext>` handler `run()` uses internally.
 - `.middleware()`: returns this instance as a plain middleware, for flat mounting into a parent via `.use()` instead of `.register()`.
+- `.parent` / `.sources`: the module this one was registered into, and the tagged sources (routers, clis, any extension) below it in order, with registered modules expanded in place. Read lazily, once the app is assembled. Tag your own middleware with `withSource(fn, source)` from `@rhythmjs/rhythm/source`.
 - `.setup()`: resolves all providers, cascading into registered modules. Idempotent; retryable on failure.
 - `.teardown()`: disposes all providers in reverse order, cascading into registered modules.
 - `compose(middleware[])`: the standalone Koa-style onion dispatcher `Rhythm` is built on.

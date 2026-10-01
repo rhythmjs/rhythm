@@ -1,5 +1,7 @@
+import { withSource } from "./source";
 import { describe, expect, test } from "bun:test";
 import { derive, Rhythm } from "./rhythm";
+import type { Middleware } from "./types";
 
 describe("onion middleware", () => {
   test("runs before/after next() in onion order", async () => {
@@ -116,7 +118,38 @@ describe("register()", () => {
     });
 
     await app.run({});
-    expect(events).toEqual(["caught: boom", "app continued"]);
+    expect(events).toEqual(["caught: boom"]);
+  });
+
+  test("a module that ends the chain without calling next() stops the parent; calling through continues it", async () => {
+    const events: string[] = [];
+    const ends = new Rhythm<{}>().use(() => {
+      events.push("ends");
+    });
+    const passes = new Rhythm<{}>().use(async (_ctx, next) => {
+      events.push("passes");
+      await next();
+    });
+
+    await new Rhythm<{}>()
+      .register(ends)
+      .use(() => void events.push("after ends"))
+      .run({});
+    await new Rhythm<{}>()
+      .register(passes)
+      .use(() => void events.push("after passes"))
+      .run({});
+    expect(events).toEqual(["ends", "passes", "after passes"]);
+  });
+
+  test("errors from the parent's downstream are not wrapped as module failures", async () => {
+    const child = new Rhythm<{}>({ name: "ok" }).use(async (_ctx, next) => {
+      await next();
+    });
+    const app = new Rhythm<{}>().register(child).use(() => {
+      throw new Error("downstream");
+    });
+    await expect(app.run({})).rejects.toThrow(/^downstream$/);
   });
 
   test.skip("type system: a non-exported field is not visible on the parent's context", () => {
@@ -525,5 +558,24 @@ describe("middleware()", () => {
 
     await app.run({});
     expect(events).toEqual(["child", "parent-downstream"]);
+  });
+});
+
+describe("sources", () => {
+  test("collects tagged middleware and registered modules in order, and sets parent", () => {
+    const a = {};
+    const b = {};
+    const tagged = (source: object): Middleware<{}> => withSource(async (_ctx, next) => void (await next()), source);
+    const child = new Rhythm().use(tagged(b));
+    const root = new Rhythm().use(tagged(a)).register(child);
+    expect(root.sources).toEqual([a, b]);
+    expect(child.parent).toBe(root);
+    expect(child.sources).toEqual([b]);
+  });
+
+  test("module.middleware() carries the module as its source", () => {
+    const child = new Rhythm();
+    const root = new Rhythm().use(child.middleware());
+    expect(child.parent).toBe(root);
   });
 });
