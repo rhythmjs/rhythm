@@ -1,5 +1,5 @@
 import type { Rhythm } from "@rhythmjs/rhythm";
-import { createHttpContext, type RhythmHttpContext } from "./context";
+import { createHttpContext, STATUS_TEXT, type RhythmHttpContext } from "./context";
 
 export function toFetchHandler<TContext extends RhythmHttpContext, TProviders extends object = {}>(
   app: Rhythm<RhythmHttpContext, TContext, TProviders>,
@@ -17,9 +17,17 @@ export function toFetchHandler<TContext extends RhythmHttpContext, TProviders ex
 }
 
 export function errorToResponse(error: unknown): Response {
-  const status = (error as { status?: number }).status ?? (error as { statusCode?: number }).statusCode ?? 500;
-  const message = status >= 500 ? "Internal Server Error" : error instanceof Error ? error.message : String(error);
+  const declared = (error as { status?: number }).status ?? (error as { statusCode?: number }).statusCode;
+  const status = Number.isInteger(declared) && declared! >= 400 && declared! <= 599 ? declared! : 500;
   if (status >= 500) console.error(error);
+  const expose = status < 500 && (error as { expose?: boolean }).expose !== false;
+  const message = expose
+    ? error instanceof Error
+      ? error.message
+      : String(error)
+    : status >= 500
+      ? "Internal Server Error"
+      : (STATUS_TEXT[status] ?? `Error ${status}`);
   return new Response(message, {
     status,
     headers: { "content-type": "text/plain; charset=utf-8" },

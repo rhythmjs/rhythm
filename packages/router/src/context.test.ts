@@ -98,6 +98,18 @@ describe("createHttpContext() helpers", () => {
     expect(ctx.response.status).toBe(301);
   });
 
+  test("redirect() rejects non-redirect statuses", () => {
+    const ctx = createHttpContext(request);
+
+    expect(() => ctx.redirect("/x", 200)).toThrow(RangeError);
+    expect(() => ctx.redirect("/x", 404)).toThrow("301, 302, 303, 307 or 308");
+    expect(ctx.response.headers.get("location")).toBeNull();
+    for (const status of [301, 302, 303, 307, 308]) {
+      ctx.redirect("/ok", status);
+      expect(ctx.response.status).toBe(status);
+    }
+  });
+
   test("helpers survive context spreading because they close over the shared response", () => {
     const ctx = createHttpContext(request);
     const spread = { ...ctx, params: { id: "1" } };

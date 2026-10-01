@@ -18,7 +18,9 @@ export interface RhythmHttpContext {
   redirect(url: string, status?: number): void;
 }
 
-const STATUS_TEXT: Record<number, string> = {
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+export const STATUS_TEXT: Record<number, string> = {
   400: "Bad Request",
   401: "Unauthorized",
   403: "Forbidden",
@@ -63,6 +65,7 @@ export function createHttpContext(request: Request): RhythmHttpContext {
       response.body = message ?? STATUS_TEXT[status] ?? `Error ${status}`;
     },
     redirect(url: string, status: number = 302): void {
+      if (!REDIRECT_STATUSES.has(status)) throw new RangeError(`redirect status must be 301, 302, 303, 307 or 308, got ${status}`);
       response.status = status;
       response.headers.set("location", url);
       response.body = null;

@@ -87,6 +87,28 @@ describe("errorToResponse", () => {
   });
 });
 
+describe("errorToResponse hardening", () => {
+  test("hides messages from errors that opt out with expose: false", async () => {
+    const res = errorToResponse(Object.assign(new Error("db password is hunter2"), { status: 400, expose: false }));
+
+    expect(res.status).toBe(400);
+    expect(await res.text()).toBe("Bad Request");
+  });
+
+  test("ignores out-of-range or non-integer statuses instead of throwing", async () => {
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (const status of [0, 99, 200, 302, 600, 1000, 4.5, Number.NaN, "404" as unknown as number]) {
+        const res = errorToResponse(Object.assign(new Error("odd"), { status }));
+        expect(res.status).toBe(500);
+        expect(await res.text()).toBe("Internal Server Error");
+      }
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+});
+
 describe("hand-wired Bun.serve", () => {
   test("toFetchHandler + Bun's native directory routes + errorToResponse + request.ip, no helpers", async () => {
     const publicDir = await (async () => {

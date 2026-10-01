@@ -27,7 +27,7 @@ A fuller runnable version, including nested prefixes and a fallback route, is at
 ## Concepts
 
 - **`ctx.response`** is a plain mutable object (`status`, `statusText`, `headers`, `body`): set it directly rather than constructing a `Response` yourself. The adapter converts it to a real `Response` at the end.
-- **Response helpers**: `ctx.json(data, status?)`, `ctx.text(body, status?)`, `ctx.html(body, status?)`, `ctx.error(status, message?)`, and `ctx.redirect(url, status = 302)` set the content type, body, and status on `ctx.response` in one call. `error()` defaults the message from the status code (`ctx.error(404)` → `"Not Found"`). They're sugar over `ctx.response`, so mixing both styles is fine, and later writes win.
+- **Response helpers**: `ctx.json(data, status?)`, `ctx.text(body, status?)`, `ctx.html(body, status?)`, `ctx.error(status, message?)`, and `ctx.redirect(url, status = 302)` (status must be 301, 302, 303, 307 or 308; the URL is used as given, so never pass a user-supplied `next`/`returnTo` value without checking it against an allowlist or requiring a same-origin path) set the content type, body, and status on `ctx.response` in one call. `error()` defaults the message from the status code (`ctx.error(404)` → `"Not Found"`). They're sugar over `ctx.response`, so mixing both styles is fine, and later writes win.
 - **`ctx.params`**: captured `:name` path segments, added once a route matches.
 - **Nesting is `.use(child.middleware())`**: a router mounts into another router (or into the app) as a compiled middleware. The mount is opaque, so the parent's prefix is **not** applied to the child's routes: the child carries its own absolute prefix (`new RhythmRouter({ prefix: "/api/users" })`). On a miss the child falls through to `next()`, so the parent's later middleware and routes still run, and the child keeps working standalone.
 - **Registration order is execution order**: a `.use()` middleware wraps only the routes registered after it; routes registered before it are untouched, and a matched route that doesn't call `next()` returns without reaching anything registered later. Consecutive routes share one rou3 lookup; an unmatched request falls through, entry by entry, to the outer `next()`.
@@ -47,7 +47,7 @@ A fuller runnable version, including nested prefixes and a fallback route, is at
 There is no `serve()` helper and no static-file helper. You write `Bun.serve` in your own `main.ts`, and the package gives you exactly two plain pieces for its `fetch`:
 
 - **`toFetchHandler(app)`** (`@rhythmjs/router/fetch`): the app as a `(Request) => Promise<Response>` handler.
-- **`errorToResponse(error)`** (`@rhythmjs/router/fetch`): maps a thrown error to a Response: the error's own `status`/`statusCode` when set, else a logged `500`.
+- **`errorToResponse(error)`** (`@rhythmjs/router/fetch`): maps a thrown error to a Response: the error's own `status`/`statusCode` when it is an integer in 400-599 (its message is the body, unless the error sets `expose: false`, which sends the generic status text instead), else a logged `500`.
 
 Everything wired, explicitly:
 
