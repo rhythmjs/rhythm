@@ -9,13 +9,13 @@ interface User {
   name: string;
 }
 
-const users: Record<string, User> = {
-  u1: { id: "u1", name: "Alice" },
-  u2: { id: "u2", name: "Bob" },
-};
+const users = new Map<string, User>([
+  ["u1", { id: "u1", name: "Alice" }],
+  ["u2", { id: "u2", name: "Bob" }],
+]);
 
 const usersRouter = new RhythmRouter({ prefix: "/api/users" }).get("/:id", (ctx) => {
-  const user = users[ctx.params.id];
+  const user = users.get(ctx.params.id);
   if (!user) {
     ctx.error(404);
     return;
