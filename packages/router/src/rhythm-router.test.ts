@@ -238,6 +238,51 @@ describe("RhythmRouter", () => {
     expect(events).toEqual(["early", "middleware", "late"]);
   });
 
+  test("get().use().post(): the middleware wraps the post route only, not the earlier get on the same path", async () => {
+    const events: string[] = [];
+    const router = new RhythmRouter()
+      .get("/items", (ctx) => {
+        events.push("get");
+        ctx.response.body = "get";
+      })
+      .use(async (ctx, next) => {
+        events.push("middleware");
+        await next();
+      })
+      .post("/items", (ctx) => {
+        events.push("post");
+        ctx.response.body = "post";
+      });
+    const fetch = serve(router);
+
+    await fetch(new Request("http://localhost/items"));
+    await fetch(new Request("http://localhost/items", { method: "POST" }));
+
+    expect(events).toEqual(["get", "middleware", "post"]);
+  });
+
+  test("each use() wraps only what follows it: stacked middleware accumulate across routes in order", async () => {
+    const events: string[] = [];
+    const mark = (name: string): Middleware<RhythmHttpContext> => async (_ctx, next) => {
+      events.push(name);
+      await next();
+    };
+    const router = new RhythmRouter()
+      .get("/a", (ctx) => ctx.json("a"))
+      .use(mark("m1"))
+      .get("/b", (ctx) => ctx.json("b"))
+      .use(mark("m2"))
+      .get("/c", (ctx) => ctx.json("c"));
+    const fetch = serve(router);
+
+    for (const path of ["/a", "/b", "/c"]) {
+      events.push(path);
+      await fetch(new Request(`http://localhost${path}`));
+    }
+
+    expect(events).toEqual(["/a", "/b", "m1", "/c", "m1", "m2"]);
+  });
+
   describe("router-level middleware is scoped to the router's own routes", () => {
     const guard: Middleware<RhythmHttpContext> = (ctx) => {
       ctx.error(401, "Unauthorized");

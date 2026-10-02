@@ -520,6 +520,87 @@ describe("compose() caching", () => {
   });
 });
 
+describe("use() is positional across modules and mounts", () => {
+  const mark = (events: string[], name: string): Middleware<any> => async (_ctx, next) => {
+    events.push(`${name}:in`);
+    await next();
+    events.push(`${name}:out`);
+  };
+
+  test("use().register().use().use(mount).use(): each use() wraps only what is registered after it", async () => {
+    const events: string[] = [];
+    const mount = new Rhythm<{}>().use(mark(events, "mount")).middleware();
+
+    await new Rhythm<{}>()
+      .use(mark(events, "a"))
+      .register(new Rhythm<{}>().use(mark(events, "module")))
+      .use(mark(events, "b"))
+      .use(mount)
+      .use(mark(events, "c"))
+      .run({});
+
+    expect(events).toEqual([
+      "a:in",
+      "module:in",
+      "b:in",
+      "mount:in",
+      "c:in",
+      "c:out",
+      "mount:out",
+      "b:out",
+      "module:out",
+      "a:out",
+    ]);
+  });
+
+  test("a use() after register() does not run inside the registered module", async () => {
+    const events: string[] = [];
+    const child = new Rhythm<{}>().use(() => {
+      events.push("child");
+    });
+    const app = new Rhythm<{}>().register(child).use(() => {
+      events.push("after");
+    });
+
+    await app.run({});
+    expect(events).toEqual(["child"]);
+  });
+
+  test("a use() before register() does not receive the module's inner middleware effects", async () => {
+    const seen: unknown[] = [];
+    const child = new Rhythm<{}>().use(async (ctx, next) => {
+      (ctx as any).inner = true;
+      await next();
+    });
+    const app = new Rhythm<{}>()
+      .use(async (ctx, next) => {
+        await next();
+        seen.push((ctx as any).inner);
+      })
+      .register(child);
+
+    await app.run({});
+    expect(seen).toEqual([undefined]);
+  });
+
+  test("a registered module's middleware added after its first run is picked up on the next run", async () => {
+    const events: string[] = [];
+    const child = new Rhythm<{}>().use(async (_ctx, next) => {
+      events.push("first");
+      await next();
+    });
+    const app = new Rhythm<{}>().register(child);
+
+    await app.run({});
+    child.use(() => {
+      events.push("second");
+    });
+    await app.run({});
+
+    expect(events).toEqual(["first", "first", "second"]);
+  });
+});
+
 describe("middleware()", () => {
   test("providers are merged into the same shared ctx object passed in, not a fresh one", async () => {
     const child = new Rhythm<{}>().provide(() => ({ greeting: "hi" }));

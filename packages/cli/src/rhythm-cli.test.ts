@@ -143,6 +143,28 @@ describe("RhythmCli", () => {
     expect(events).toEqual(["early", "middleware", "late"]);
   });
 
+  test("each use() wraps only what follows it: stacked middleware accumulate across commands in order", async () => {
+    const events: string[] = [];
+    const mark = (name: string): Middleware<RhythmCliContext> => async (_ctx, next) => {
+      events.push(name);
+      await next();
+    };
+    const cli = new RhythmCli()
+      .command("a", () => {})
+      .use(mark("m1"))
+      .command("b", () => {})
+      .use(mark("m2"))
+      .command("c", () => {});
+    const run = collect(host(cli));
+
+    for (const name of ["a", "b", "c"]) {
+      events.push(name);
+      await run([name]);
+    }
+
+    expect(events).toEqual(["a", "b", "m1", "c", "m1", "m2"]);
+  });
+
   test("a cli is a controller, not a module: it exposes no register() or provide()", () => {
     const cli = new RhythmCli();
 

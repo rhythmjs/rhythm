@@ -1,6 +1,6 @@
 import { compose } from "./compose";
 import { sourceOf, withSource } from "./source";
-import type { DeriveMiddleware, Middleware, NextFn, OmitHashKeys } from "./types";
+import type { DeriveMiddleware, Middleware, OmitHashKeys } from "./types";
 
 type ProviderEntry = {
   factory: (deps: any) => unknown;
@@ -92,13 +92,12 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
       },
       dispose: () => module.teardown(),
     });
-    let chain: ((context: TRegContext, next?: NextFn<TRegContext>) => Promise<TRegContext>) | undefined;
     this.#middleware.push(async (ctx, next) => {
       const inner = { ...ctx } as unknown as TRegContext;
       let downstream: { error: unknown } | undefined;
       try {
         await module.setup();
-        await (chain ??= compose<TRegContext>([...module.#middleware]))(inner, async () => {
+        await compose<TRegContext>([...module.#middleware])(inner, async () => {
           try {
             if (exportValue) Object.assign(ctx, exportValue(inner));
             await next();
