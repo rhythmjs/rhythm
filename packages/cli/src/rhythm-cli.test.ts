@@ -145,10 +145,12 @@ describe("RhythmCli", () => {
 
   test("each use() wraps only what follows it: stacked middleware accumulate across commands in order", async () => {
     const events: string[] = [];
-    const mark = (name: string): Middleware<RhythmCliContext> => async (_ctx, next) => {
-      events.push(name);
-      await next();
-    };
+    const mark =
+      (name: string): Middleware<RhythmCliContext> =>
+      async (_ctx, next) => {
+        events.push(name);
+        await next();
+      };
     const cli = new RhythmCli()
       .command("a", () => {})
       .use(mark("m1"))
@@ -231,6 +233,95 @@ describe("RhythmCli", () => {
 
       expect((await run(["remote", "add", "origin"])).stdout).toBe("origin");
       expect((await run(["add", "origin"])).stdout).toBe("");
+    });
+
+    describe("middleware registered before mounted children", () => {
+      const tag =
+        (seen: string[], name: string): Middleware<any> =>
+        async (_ctx, next) => {
+          seen.push(name);
+          await next();
+        };
+
+      test("runs for each mounted child's commands", async () => {
+        const seen: string[] = [];
+        const build = new RhythmCli().command("build", (ctx) => {
+          ctx.response.print("build");
+        });
+        const lint = new RhythmCli().command("lint", (ctx) => {
+          ctx.response.print("lint");
+        });
+        const run = collect(
+          host(new RhythmCli().use(tag(seen, "auth")).use(build.middleware()).use(lint.middleware())),
+        );
+
+        expect((await run(["build"])).stdout).toBe("build");
+        expect((await run(["lint"])).stdout).toBe("lint");
+        expect(seen).toEqual(["auth", "auth"]);
+      });
+
+      test("covers nested children and respects prefixes", async () => {
+        const seen: string[] = [];
+        const deploy = new RhythmCli({ prefix: "cloud" }).command("deploy :env", (ctx) => {
+          ctx.response.print(ctx.args.env!);
+        });
+        const group = new RhythmCli().use(deploy.middleware());
+        const run = collect(host(new RhythmCli().use(tag(seen, "auth")).use(group.middleware())));
+
+        expect((await run(["cloud", "deploy", "prod"])).stdout).toBe("prod");
+        expect(seen).toEqual(["auth"]);
+      });
+
+      test("does not run when no command matches", async () => {
+        const seen: string[] = [];
+        const build = new RhythmCli().command("build", (ctx) => {
+          ctx.response.print("build");
+        });
+        const run = collect(host(new RhythmCli().use(tag(seen, "auth")).use(build.middleware())));
+
+        await run(["unknown"]);
+        await run(["build", "extra"]); // too many positionals: no match
+        expect(seen).toEqual([]);
+      });
+
+      test("a child's own middleware stays scoped to the child's commands", async () => {
+        const seen: string[] = [];
+        const build = new RhythmCli().use(tag(seen, "build-guard")).command("build", (ctx) => {
+          ctx.response.print("build");
+        });
+        const lint = new RhythmCli().command("lint", (ctx) => {
+          ctx.response.print("lint");
+        });
+        const run = collect(host(new RhythmCli().use(build.middleware()).use(lint.middleware())));
+
+        await run(["lint"]);
+        expect(seen).toEqual([]);
+        await run(["build"]);
+        expect(seen).toEqual(["build-guard"]);
+      });
+
+      test("only counts commands registered after it, including its own sibling commands", async () => {
+        const seen: string[] = [];
+        const child = new RhythmCli().command("child", (ctx) => {
+          ctx.response.print("child");
+        });
+        const cli = new RhythmCli()
+          .command("early", (ctx) => {
+            ctx.response.print("early");
+          })
+          .use(tag(seen, "late"))
+          .use(child.middleware())
+          .command("own", (ctx) => {
+            ctx.response.print("own");
+          });
+        const run = collect(host(cli));
+
+        await run(["early"]);
+        expect(seen).toEqual([]);
+        await run(["child"]);
+        await run(["own"]);
+        expect(seen).toEqual(["late", "late"]);
+      });
     });
 
     test("a child cli mounted via use(child.middleware()) serves under its own prefix", async () => {

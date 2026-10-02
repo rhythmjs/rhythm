@@ -60,6 +60,18 @@ export type CliEntry =
   | { readonly kind: "middleware"; readonly fn: Middleware<any> }
   | { readonly kind: "command"; readonly segments: readonly string[]; readonly handlers: readonly Middleware<any>[] };
 
+function mountedCommands(cli: RhythmCli<any, any>, out: { segments: string[] }[], seen = new Set<object>()): void {
+  if (seen.has(cli)) return;
+  seen.add(cli);
+  for (const entry of cli.entries) {
+    if (entry.kind === "command") out.push({ segments: [...entry.segments] });
+    else {
+      const child = sourceOf(entry.fn);
+      if (child instanceof RhythmCli) mountedCommands(child, out, seen);
+    }
+  }
+}
+
 export class RhythmCli<
   TContext extends RhythmCliContext = RhythmCliContext,
   TInput extends RhythmCliContext = TContext,
@@ -104,7 +116,7 @@ export class RhythmCli<
     type CommandDispatch = (context: TContext & RhythmCliCommandContext, next?: NextFn<any>) => Promise<unknown>;
     type CompiledCommand = { segments: string[]; dispatch: CommandDispatch };
 
-    const groups: CompiledCommand[][] = [];
+    const groups: { segments: string[] }[][] = [];
     const reaches = (ctx: { argv: readonly string[] }, from: number): boolean => {
       const { positionals } = parseArgv(ctx.argv as string[]);
       for (let g = from; g < groups.length; g++) {
@@ -132,8 +144,20 @@ export class RhythmCli<
       const entry = this.#entries[i]!;
       if (entry.kind === "middleware") {
         const { fn } = entry;
-        const from = groups.length;
-        stack.push(sourceOf(fn) ? fn : (ctx, next) => (reaches(ctx, from) ? fn(ctx, next) : next()));
+        const source = sourceOf(fn);
+        if (source) {
+          // A mounted cli gates its own middleware, but its commands still count as "commands after" the
+          // middleware registered before it, so those run for the child's invocations too.
+          if (source instanceof RhythmCli) {
+            const commands: { segments: string[] }[] = [];
+            mountedCommands(source, commands);
+            groups.push(commands);
+          }
+          stack.push(fn);
+        } else {
+          const from = groups.length;
+          stack.push((ctx, next) => (reaches(ctx, from) ? fn(ctx, next) : next()));
+        }
         i++;
         continue;
       }

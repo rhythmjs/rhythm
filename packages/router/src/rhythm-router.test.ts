@@ -47,6 +47,44 @@ describe("RhythmRouter", () => {
     expect(await (await handler(new Request("http://localhost/api/health"))).text()).toBe("ok");
   });
 
+  test("a middleware registered before mounted-only child routers runs for the children's routes", async () => {
+    const seen: string[] = [];
+    const users = new RhythmRouter({ prefix: "/users" }).get("/:id", (ctx) => ctx.text("user"));
+    const posts = new RhythmRouter({ prefix: "/posts" }).get("/:id", (ctx) => ctx.text("post"));
+    const app = new RhythmRouter()
+      .use(async (_ctx, next) => {
+        seen.push("auth");
+        await next();
+      })
+      .use(users.middleware())
+      .use(posts.middleware());
+
+    const handler = serve(app);
+    expect(await (await handler(new Request("http://localhost/users/1"))).text()).toBe("user");
+    expect(await (await handler(new Request("http://localhost/posts/1"))).text()).toBe("post");
+    expect(seen).toEqual(["auth", "auth"]);
+  });
+
+  test("a middleware before mounted routers covers nested children by method and skips unmatched requests", async () => {
+    const seen: string[] = [];
+    const deep = new RhythmRouter({ prefix: "/api/deep" }).post("/", (ctx) => ctx.text("deep"));
+    const api = new RhythmRouter().use(deep.middleware());
+    const app = new RhythmRouter()
+      .use(async (_ctx, next) => {
+        seen.push("auth");
+        await next();
+      })
+      .use(api.middleware());
+
+    const handler = serve(app);
+    expect(await (await handler(new Request("http://localhost/api/deep", { method: "POST" }))).text()).toBe("deep");
+    expect(seen).toEqual(["auth"]);
+
+    await handler(new Request("http://localhost/api/deep")); // wrong method: no route matches
+    await handler(new Request("http://localhost/nowhere", { method: "POST" }));
+    expect(seen).toEqual(["auth"]);
+  });
+
   test("a '**:name' wildcard captures the rest of the path under that param", async () => {
     const router = new RhythmRouter().get("/files/**:path", (ctx) => {
       ctx.response.body = `file:${ctx.params.path}`;
@@ -263,10 +301,12 @@ describe("RhythmRouter", () => {
 
   test("each use() wraps only what follows it: stacked middleware accumulate across routes in order", async () => {
     const events: string[] = [];
-    const mark = (name: string): Middleware<RhythmHttpContext> => async (_ctx, next) => {
-      events.push(name);
-      await next();
-    };
+    const mark =
+      (name: string): Middleware<RhythmHttpContext> =>
+      async (_ctx, next) => {
+        events.push(name);
+        await next();
+      };
     const router = new RhythmRouter()
       .get("/a", (ctx) => ctx.json("a"))
       .use(mark("m1"))

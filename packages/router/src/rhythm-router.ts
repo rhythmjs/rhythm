@@ -36,6 +36,18 @@ export function joinPath(prefix: string, path: string): string {
   return `${trimmedPrefix}${normalizedPath}`;
 }
 
+function mountedRoutes(router: RhythmRouter<any, any>, tree: RouterContext<any>, seen = new Set<object>()): void {
+  if (seen.has(router)) return;
+  seen.add(router);
+  for (const entry of router.entries) {
+    if (entry.kind === "route") addRoute(tree, entry.method, entry.path, true);
+    else {
+      const child = sourceOf(entry.fn);
+      if (child instanceof RhythmRouter) mountedRoutes(child, tree, seen);
+    }
+  }
+}
+
 export class RhythmRouter<
   TContext extends RhythmHttpContext = RhythmHttpContext,
   TInput extends RhythmHttpContext = TContext,
@@ -132,7 +144,7 @@ export class RhythmRouter<
       };
     };
 
-    const trees: RouterContext<RouteDispatch>[] = [];
+    const trees: RouterContext<any>[] = [];
     const reaches = (ctx: { request: Request }, from: number): boolean => {
       const method = ctx.request.method;
       const pathname = new URL(ctx.request.url).pathname;
@@ -146,8 +158,20 @@ export class RhythmRouter<
       const entry = this.#entries[i]!;
       if (entry.kind === "middleware") {
         const { fn } = entry;
-        const from = trees.length;
-        stack.push(sourceOf(fn) ? fn : (ctx, next) => (reaches(ctx, from) ? fn(ctx, next) : next()));
+        const source = sourceOf(fn);
+        if (source) {
+          // A mounted router gates its own middleware, but its routes still count as "routes after" the
+          // middleware registered before it, so those run for the child's requests too.
+          if (source instanceof RhythmRouter) {
+            const tree = createRouter<true>();
+            mountedRoutes(source, tree);
+            trees.push(tree);
+          }
+          stack.push(fn);
+        } else {
+          const from = trees.length;
+          stack.push((ctx, next) => (reaches(ctx, from) ? fn(ctx, next) : next()));
+        }
         i++;
         continue;
       }

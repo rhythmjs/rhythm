@@ -521,11 +521,13 @@ describe("compose() caching", () => {
 });
 
 describe("use() is positional across modules and mounts", () => {
-  const mark = (events: string[], name: string): Middleware<any> => async (_ctx, next) => {
-    events.push(`${name}:in`);
-    await next();
-    events.push(`${name}:out`);
-  };
+  const mark =
+    (events: string[], name: string): Middleware<any> =>
+    async (_ctx, next) => {
+      events.push(`${name}:in`);
+      await next();
+      events.push(`${name}:out`);
+    };
 
   test("use().register().use().use(mount).use(): each use() wraps only what is registered after it", async () => {
     const events: string[] = [];
