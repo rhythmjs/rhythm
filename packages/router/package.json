@@ -27,6 +27,10 @@
       "types": "./dist/fetch.d.ts",
       "default": "./dist/fetch.js"
     },
+    "./match": {
+      "types": "./dist/match.d.ts",
+      "default": "./dist/match.js"
+    },
     "./adapters/context": {
       "types": "./dist/context.d.ts",
       "default": "./dist/context.js"
@@ -37,7 +41,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "bun build src/rhythm-router.ts src/context.ts src/fetch.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
+    "build": "bun build src/rhythm-router.ts src/context.ts src/fetch.ts src/match.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
     "prepublishOnly": "bun run typecheck && bun test && bun run build",
     "typecheck": "tsc --noEmit",
     "test": "bun test"

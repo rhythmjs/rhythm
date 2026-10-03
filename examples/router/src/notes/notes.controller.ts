@@ -6,7 +6,16 @@ export type NotesContext = RhythmHttpContext & {
   notesService: NotesService;
 };
 
+const apiKey = process.env.API_KEY ?? "dev-key";
+
 export const notesController = new RhythmRouter<NotesContext>({ prefix: "" })
+  .use(
+    async (ctx, next) => {
+      if (ctx.request.headers.get("x-api-key") !== apiKey) return ctx.error(401, "x-api-key required");
+      await next();
+    },
+    (ctx) => ctx.request.method !== "GET",
+  )
   .get("/api/notes/", (ctx) => {
     ctx.json(ctx.notesService.list(new URL(ctx.request.url).searchParams.get("userId") ?? undefined));
   })

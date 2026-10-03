@@ -4,13 +4,13 @@ import { RhythmCliResponse, type RhythmCliContext } from "./context";
 describe("RhythmCliResponse", () => {
   test.skip("type system: the input side of the context is readonly", () => {
     const ctx = { response: new RhythmCliResponse() } as RhythmCliContext;
-    // @ts-expect-error the argv binding is readonly
+    // @ts-expect-error
     ctx.argv = [];
-    // @ts-expect-error the argv array itself is readonly
+    // @ts-expect-error
     ctx.argv.push("extra");
-    // @ts-expect-error flags entries are readonly
+    // @ts-expect-error
     ctx.flags.verbose = true;
-    // @ts-expect-error the response binding is readonly (its fields stay mutable)
+    // @ts-expect-error
     ctx.response = new RhythmCliResponse();
     ctx.response.exitCode = 1;
   });

@@ -155,7 +155,7 @@ describe("register()", () => {
   test.skip("type system: a non-exported field is not visible on the parent's context", () => {
     const child = new Rhythm<{}>().use(derive(() => ({ secret: "hidden" })));
     new Rhythm<{}>().register(child).use((ctx) => {
-      // @ts-expect-error default register() stays sealed: `secret` must not be visible without exportValue
+      // @ts-expect-error
       return ctx.secret;
     });
   });
@@ -164,7 +164,7 @@ describe("register()", () => {
     const needsToken = new Rhythm<{ token: string }>().use((ctx) => {
       ctx.token;
     });
-    // @ts-expect-error parent context ({}) doesn't satisfy the module's required input ({ token })
+    // @ts-expect-error
     new Rhythm<{}>().register(needsToken);
   });
 });
@@ -271,9 +271,9 @@ describe("context", () => {
     });
     app.context.db = { name: "db" };
     app.context.port = 3000;
-    // @ts-expect-error port is a number
+    // @ts-expect-error
     app.context.port = "3000";
-    // @ts-expect-error unknown key
+    // @ts-expect-error
     app.context.nope = 1;
     app.context.port = 3000;
 
@@ -348,7 +348,7 @@ describe("context", () => {
 
   test("register() rejects, at compile time, a module whose required context the parent doesn't have", () => {
     const child = new Rhythm<{ db: string }>({ name: "child" });
-    // @ts-expect-error parent has no `db` in its context
+    // @ts-expect-error
     new Rhythm<{}>().register(child);
   });
 
@@ -363,6 +363,105 @@ describe("context", () => {
     const ctx: Record<string, unknown> = {};
     await child.middleware()(ctx as any, (async () => ctx) as any);
     expect(ctx.greeting).toBe("hi");
+  });
+});
+
+describe("conditional middleware: use(fn, condition)", () => {
+  test("runs fn only when the predicate is true, otherwise falls through to next()", async () => {
+    const events: string[] = [];
+    const app = new Rhythm<{ path: string }>()
+      .use(
+        async (_ctx, next) => {
+          events.push("guarded");
+          await next();
+        },
+        (ctx) => ctx.path.startsWith("/api"),
+      )
+      .use(() => {
+        events.push("end");
+      });
+
+    await app.run({ path: "/api/users" });
+    await app.run({ path: "/other" });
+    expect(events).toEqual(["guarded", "end", "end"]);
+  });
+
+  test("supports an async predicate", async () => {
+    const events: string[] = [];
+    const app = new Rhythm<{ allow: boolean }>().use(
+      () => {
+        events.push("ran");
+      },
+      async (ctx) => ctx.allow,
+    );
+
+    await app.run({ allow: true });
+    await app.run({ allow: false });
+    expect(events).toEqual(["ran"]);
+  });
+
+  test("a skipped middleware does not end the chain; later middleware still run and onion order is kept", async () => {
+    const events: string[] = [];
+    const app = new Rhythm<{}>()
+      .use(async (_ctx, next) => {
+        events.push("outer:before");
+        await next();
+        events.push("outer:after");
+      })
+      .use(
+        () => {
+          events.push("never");
+        },
+        () => false,
+      )
+      .use(() => {
+        events.push("inner");
+      });
+
+    await app.run({});
+    expect(events).toEqual(["outer:before", "inner", "outer:after"]);
+  });
+
+  test("the predicate sees startup context and earlier derive output", async () => {
+    let seen: unknown;
+    const app = new Rhythm<{}, { env: string }>().use(derive((ctx) => ({ label: `${ctx.env}!` }))).use(
+      () => {
+        seen = "ran";
+      },
+      (ctx) => ctx.label === "test!",
+    );
+    app.context.env = "test";
+
+    await app.run({});
+    expect(seen).toBe("ran");
+  });
+
+  test("a conditional derive does not widen the context type (its fields may be absent)", async () => {
+    const app = new Rhythm<{ flag: boolean }>().use(
+      derive(() => ({ extra: 1 })),
+      (ctx) => ctx.flag,
+    );
+    app.use((ctx) => {
+      // @ts-expect-error
+      ctx.extra;
+    });
+
+    await app.run({ flag: false });
+  });
+
+  test("a throwing predicate rejects the run", async () => {
+    const app = new Rhythm<{}>().use(
+      () => {},
+      () => {
+        throw new Error("predicate failed");
+      },
+    );
+
+    await expect(app.run({})).rejects.toThrow("predicate failed");
+  });
+
+  test("rejects a non-function predicate immediately", () => {
+    expect(() => new Rhythm<{}>().use(() => {}, "nope" as any)).toThrow("condition must be a function!");
   });
 });
 

@@ -1,6 +1,6 @@
-import { compose } from "./compose";
+import { compose, gate } from "./compose";
 import { sourceOf, withSource } from "./source";
-import type { DeriveMiddleware, Middleware, OmitHashKeys } from "./types";
+import type { Condition, DeriveMiddleware, Middleware, OmitHashKeys } from "./types";
 
 export interface RhythmOptions {
   name?: string;
@@ -37,11 +37,6 @@ export class Rhythm<
   #options: RhythmOptions;
   #sources: object[] = [];
 
-  /**
-   * Startup-time values (a db connection, config, ...). Declare the shape as the second type parameter, assign
-   * before serving, and every request context carries them. Registered modules inherit their parent's values and
-   * can add their own; a module's values never reach its parent.
-   */
   readonly context: TStartup = {} as TStartup;
 
   parent?: Rhythm<any, any, any>;
@@ -61,10 +56,10 @@ export class Rhythm<
   }
 
   use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): Rhythm<TInput, TStartup, TContext & TExtra>;
-  use(fn: Middleware<TContext>): this;
-  use(fn: Middleware<TContext>): any {
+  use(fn: Middleware<TContext>, condition?: Condition<TContext>): this;
+  use(fn: Middleware<TContext>, condition?: Condition<TContext>): any {
     if (typeof fn !== "function") throw new TypeError("middleware must be a function!");
-    this.#middleware.push(fn);
+    this.#middleware.push(condition ? gate(fn, condition) : fn);
     this.#adopt(sourceOf(fn));
     return this;
   }

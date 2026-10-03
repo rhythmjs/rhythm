@@ -280,7 +280,7 @@ describe("RhythmCli", () => {
         const run = collect(host(new RhythmCli().use(tag(seen, "auth")).use(build.middleware())));
 
         await run(["unknown"]);
-        await run(["build", "extra"]); // too many positionals: no match
+        await run(["build", "extra"]);
         expect(seen).toEqual([]);
       });
 
@@ -377,5 +377,37 @@ describe("RhythmCli", () => {
       expect(result.stdout).toBe("command not found");
       expect(result.exitCode).toBe(1);
     });
+  });
+});
+
+describe("RhythmCli#use(fn, condition)", () => {
+  test("runs the middleware only when the predicate AND a later command match", async () => {
+    const seen: string[] = [];
+    const cli = new RhythmCli()
+      .use(
+        async (ctx, next) => {
+          seen.push(ctx.argv.join(" "));
+          await next();
+        },
+        (ctx) => ctx.flags.verbose === true,
+      )
+      .command("deploy", (ctx) => {
+        ctx.response.print("deployed");
+      });
+    const app = new Rhythm<RhythmCliContext>().use(cli.middleware());
+
+    const run = async (argv: string[], flags: Record<string, string | boolean>) => {
+      const ctx = await app.run({ argv, flags, stdin: null, response: new RhythmCliResponse() });
+      return ctx.response.stdout.join("\n");
+    };
+
+    expect(await run(["deploy"], { verbose: true })).toBe("deployed");
+    expect(await run(["deploy"], {})).toBe("deployed");
+    expect(await run(["unknown"], { verbose: true })).toBe("");
+    expect(seen).toEqual(["deploy"]);
+  });
+
+  test("rejects a non-function predicate", () => {
+    expect(() => new RhythmCli().use(() => {}, "x" as any)).toThrow("condition must be a function!");
   });
 });

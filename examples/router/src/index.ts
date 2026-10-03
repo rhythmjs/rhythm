@@ -2,18 +2,26 @@ import { join } from "node:path";
 import { Rhythm } from "@rhythmjs/rhythm";
 import type { RhythmHttpContext } from "@rhythmjs/router/context";
 import { errorToResponse, toFetchHandler } from "@rhythmjs/router/fetch";
+import { matches } from "@rhythmjs/router/match";
 import { createDatabase, type Database } from "./database";
 import { notesModule } from "./notes/notes.module";
 import { usersModule } from "./users/users.module";
 
 const app = new Rhythm<RhythmHttpContext, { db: Database; logger: { info(msg: string): void } }>({ name: "app" })
+  .use(
+    async (ctx, next) => {
+      const startedAt = Date.now();
+      await next();
+      ctx.logger.info(
+        `${ctx.request.method} ${new URL(ctx.request.url).pathname} ${ctx.response.status} in ${Date.now() - startedAt}ms`,
+      );
+    },
+    (ctx) => new URL(ctx.request.url).pathname.startsWith("/api"),
+  )
   .use(async (ctx, next) => {
-    const startedAt = Date.now();
     await next();
-    ctx.logger.info(
-      `${ctx.request.method} ${new URL(ctx.request.url).pathname} ${ctx.response.status} in ${Date.now() - startedAt}ms`,
-    );
-  })
+    ctx.response.headers.set("cache-control", "no-store");
+  }, matches("/api/**"))
   .register(usersModule)
   .register(notesModule)
   .use(async (ctx) => {

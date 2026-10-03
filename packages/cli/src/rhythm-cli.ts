@@ -1,6 +1,6 @@
-import { compose } from "@rhythmjs/rhythm/compose";
+import { compose, gate } from "@rhythmjs/rhythm/compose";
 import { sourceOf, withSource } from "@rhythmjs/rhythm/source";
-import type { DeriveMiddleware, Middleware, NextFn } from "@rhythmjs/rhythm/types";
+import type { Condition, DeriveMiddleware, Middleware, NextFn } from "@rhythmjs/rhythm/types";
 import type { RhythmCliContext } from "./context";
 import { parseArgv } from "./argv";
 
@@ -92,10 +92,14 @@ export class RhythmCli<
   }
 
   use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): RhythmCli<TContext & TExtra, TInput>;
-  use(fn: Middleware<TContext>): this;
-  use(fn: Middleware<TContext>): any {
+  use(fn: Middleware<TContext>, condition?: Condition<TContext>): this;
+  use(fn: Middleware<TContext>, condition?: Condition<TContext>): any {
     if (typeof fn !== "function") throw new TypeError("middleware must be a function!");
-    this.#entries.push({ kind: "middleware", fn });
+    if (condition !== undefined && typeof condition !== "function")
+      throw new TypeError("condition must be a function!");
+    const source = sourceOf(fn);
+    const wrapped = condition ? gate(fn, condition) : fn;
+    this.#entries.push({ kind: "middleware", fn: condition && source ? withSource(wrapped, source) : wrapped });
     return this;
   }
 
@@ -146,8 +150,6 @@ export class RhythmCli<
         const { fn } = entry;
         const source = sourceOf(fn);
         if (source) {
-          // A mounted cli gates its own middleware, but its commands still count as "commands after" the
-          // middleware registered before it, so those run for the child's invocations too.
           if (source instanceof RhythmCli) {
             const commands: { segments: string[] }[] = [];
             mountedCommands(source, commands);

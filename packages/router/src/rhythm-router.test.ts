@@ -80,7 +80,7 @@ describe("RhythmRouter", () => {
     expect(await (await handler(new Request("http://localhost/api/deep", { method: "POST" }))).text()).toBe("deep");
     expect(seen).toEqual(["auth"]);
 
-    await handler(new Request("http://localhost/api/deep")); // wrong method: no route matches
+    await handler(new Request("http://localhost/api/deep"));
     await handler(new Request("http://localhost/nowhere", { method: "POST" }));
     expect(seen).toEqual(["auth"]);
   });

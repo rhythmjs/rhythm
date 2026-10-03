@@ -12,9 +12,9 @@ describe("RhythmResponse", () => {
 
   test.skip("type system: the input side of the context is readonly", () => {
     const ctx = createHttpContext(new Request("http://localhost/"));
-    // @ts-expect-error the request binding is readonly
+    // @ts-expect-error
     ctx.request = new Request("http://localhost/other");
-    // @ts-expect-error the response binding is readonly (its fields stay mutable)
+    // @ts-expect-error
     ctx.response = new RhythmResponse();
     ctx.response.status = 404;
   });

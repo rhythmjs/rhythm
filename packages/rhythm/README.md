@@ -66,8 +66,9 @@ Keys prefixed with `#` are dropped from the context. For long-lived resources, c
 ```ts
 import { Rhythm, derive } from "@rhythmjs/rhythm";
 
-const authModule = new Rhythm<{ userId: string }, { db: Db }>({ name: "auth" })
-  .use(derive((ctx) => ({ user: ctx.db.findUser(ctx.userId) })));
+const authModule = new Rhythm<{ userId: string }, { db: Db }>({ name: "auth" }).use(
+  derive((ctx) => ({ user: ctx.db.findUser(ctx.userId) })),
+);
 authModule.context.db = connectToUserDb();
 
 const app = new Rhythm<{ userId: string }>()
@@ -80,7 +81,7 @@ The child runs in place: if it ends the chain without calling `next()`, the pare
 ## API
 
 - `new Rhythm<TInput, TStartup>(options?)`: creates a pipeline; `options.name`/`options.type` label errors from `register()`.
-- `.use(fn: (ctx, next) => Promise<void> | void)`: add an onion middleware step. `next()` takes no arguments; to extend the context pass a `derive()` middleware.
+- `.use(fn: (ctx, next) => Promise<void> | void, condition?: Condition)`: add an onion middleware step. With a second callback, the step runs only when `condition(ctx)` returns true and otherwise falls through to `next()`; a conditional `derive()` does not extend the context type. `next()` takes no arguments; to extend the context pass a `derive()` middleware.
 - `derive(fn: (ctx) => TExtra | Promise<TExtra>)`: middleware that merges `fn`'s result into the context and continues; the typed way to add fields.
 - `.context`: the startup values object, typed by `Rhythm<TInput, TStartup>`. Assign to it before serving; every request context carries it. Inherited by registered modules, never by the parent.
 - `.register(other: Rhythm, exportValue?)`: mount a child `Rhythm` module; sealed by default, opt in via `exportValue`. Controllers (`RhythmRouter`, `RhythmCli`) are not modules; they mount via `.use()` instead.

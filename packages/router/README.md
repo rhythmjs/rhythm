@@ -4,7 +4,7 @@ The HTTP layer of Rhythm, the Bun-native backend framework: web-standard (`Reque
 
 Route patterns follow rou3's conventions: `:name` params (`:name?` optional, `:id(\\d+)` regex-constrained), `*` for one unnamed segment (captured as `params["0"]`), and `**` for the rest of the path (`params._`, or `params.name` with `**:name`). Param values are the raw path segments, undecoded.
 
-`RhythmRouter` is not an app and does not extend `Rhythm`; it is a controller that compiles routes and middleware down to a single middleware (`.middleware()`). It shares the core middleware contract (`compose`, `Middleware`, `derive`; `next()` takes no arguments, extend the context with `derive()`), but has no a startup `context` or `register()`, and it can't be served on its own: a `Rhythm` app is always the host that owns the lifecycle and the adapters.
+`RhythmRouter` is not an app and does not extend `Rhythm`; it is a controller that compiles routes and middleware down to a single middleware (`.middleware()`). It shares the core middleware contract (`compose`, `Middleware`, `derive`; `next()` takes no arguments, extend the context with `derive()`), but has no startup `context` or `register()`, and it can't be served on its own: a `Rhythm` app is always the host that owns the lifecycle and the adapters.
 
 ## Example
 
@@ -31,7 +31,8 @@ A fuller runnable version, including nested prefixes and a fallback route, is at
 - **`ctx.params`**: captured `:name` path segments, added once a route matches.
 - **Nesting is `.use(child.middleware())`**: a router mounts into another router (or into the app) as a compiled middleware. The mount is opaque, so the parent's prefix is **not** applied to the child's routes: the child carries its own absolute prefix (`new RhythmRouter({ prefix: "/api/users" })`). On a miss the child falls through to `next()`, so the parent's later middleware and routes still run, and the child keeps working standalone.
 - **Registration order is execution order**: a `.use()` middleware wraps only the routes registered after it, and runs only when one of them matches the request's method and path (so a guard in a `/projects` router never answers `/docs`); a mounted router (`.use(child.middleware())`) always runs; routes registered before it are untouched, and a matched route that doesn't call `next()` returns without reaching anything registered later. Consecutive routes share one rou3 lookup; an unmatched request falls through, entry by entry, to the outer `next()`.
-- **A router is a controller, not a module**: it has no a startup `context` or `register()`, and it cannot be `register()`ed into a `Rhythm` app either; `register()` composes `Rhythm` modules only. A router mounts into an app exactly one way: koa-style, via `.use(router.middleware())`.
+- **Conditional middleware**: `.use(fn, condition)` also needs `condition(ctx)` to return true (sync or async); the second callback only narrows, so a middleware registered after every route still never runs. `@rhythmjs/router/match` provides ready-made predicates: `matches("/api/**")` (patterns, `exclude`, `methods`) and `routed(module)` (true only for requests the module's own routers serve), e.g. `app.use(audit(), routed(usersModule))`.
+- **A router is a controller, not a module**: it has no startup `context` or `register()`, and it cannot be `register()`ed into a `Rhythm` app either; `register()` composes `Rhythm` modules only. A router mounts into an app exactly one way: koa-style, via `.use(router.middleware())`.
 
 ## API
 

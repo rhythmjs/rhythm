@@ -1,6 +1,6 @@
-import { compose } from "@rhythmjs/rhythm/compose";
+import { compose, gate } from "@rhythmjs/rhythm/compose";
 import { sourceOf, withSource } from "@rhythmjs/rhythm/source";
-import type { DeriveMiddleware, Middleware, NextFn } from "@rhythmjs/rhythm/types";
+import type { Condition, DeriveMiddleware, Middleware, NextFn } from "@rhythmjs/rhythm/types";
 import { addRoute, createRouter, findRoute, type RouterContext } from "rou3";
 import type { RhythmHttpContext } from "./context";
 
@@ -37,7 +37,11 @@ export function joinPath(prefix: string, path: string): string {
   return `${trimmedPrefix}${normalizedPath}`;
 }
 
-function mountedRoutes(router: RhythmRouter<any, any>, tree: RouterContext<any>, seen = new Set<object>()): void {
+export function mountedRoutes(
+  router: RhythmRouter<any, any>,
+  tree: RouterContext<any>,
+  seen = new Set<object>(),
+): void {
   if (seen.has(router)) return;
   seen.add(router);
   for (const entry of router.entries) {
@@ -69,10 +73,14 @@ export class RhythmRouter<
   }
 
   use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): RhythmRouter<TContext & TExtra, TInput>;
-  use(fn: Middleware<TContext>): this;
-  use(fn: Middleware<TContext>): any {
+  use(fn: Middleware<TContext>, condition?: Condition<TContext>): this;
+  use(fn: Middleware<TContext>, condition?: Condition<TContext>): any {
     if (typeof fn !== "function") throw new TypeError("middleware must be a function!");
-    this.#entries.push({ kind: "middleware", fn });
+    if (condition !== undefined && typeof condition !== "function")
+      throw new TypeError("condition must be a function!");
+    const source = sourceOf(fn);
+    const wrapped = condition ? gate(fn, condition) : fn;
+    this.#entries.push({ kind: "middleware", fn: condition && source ? withSource(wrapped, source) : wrapped });
     return this;
   }
 
@@ -161,8 +169,6 @@ export class RhythmRouter<
         const { fn } = entry;
         const source = sourceOf(fn);
         if (source) {
-          // A mounted router gates its own middleware, but its routes still count as "routes after" the
-          // middleware registered before it, so those run for the child's requests too.
           if (source instanceof RhythmRouter) {
             const tree = createRouter<true>();
             mountedRoutes(source, tree);

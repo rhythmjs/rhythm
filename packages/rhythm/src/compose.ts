@@ -1,4 +1,4 @@
-import type { DeriveMiddleware, Middleware, NextFn } from "./types";
+import type { Condition, DeriveMiddleware, Middleware, NextFn } from "./types";
 
 type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
 
@@ -13,6 +13,20 @@ export type ComposedMiddleware<TContext extends object, TExtra extends object> =
   Middleware<TContext> & {
     readonly "~derive": TExtra;
   };
+
+const toVoid = (): void => {};
+
+export function gate<TContext extends object>(
+  fn: Middleware<TContext>,
+  condition: Condition<TContext>,
+): Middleware<TContext> {
+  if (typeof condition !== "function") throw new TypeError("condition must be a function!");
+  return (ctx, next) => {
+    const pass = condition(ctx);
+    if (typeof pass === "boolean") return pass ? fn(ctx, next) : next().then(toVoid);
+    return pass.then((ok) => (ok ? fn(ctx, next) : next().then(toVoid)));
+  };
+}
 
 export function compose<const TMiddleware extends readonly Middleware<any>[]>(
   middleware: TMiddleware,
