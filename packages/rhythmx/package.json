@@ -1,6 +1,6 @@
 {
   "name": "rhythmx",
-  "version": "0.0.14",
+  "version": "0.0.16",
   "description": "The Rhythm CLI: scaffold and manage Rhythm projects from the command line, running on Bun.",
   "homepage": "https://rhythm.js.org",
   "license": "ISC",
