@@ -1,8 +1,8 @@
 import type { Rhythm } from "@rhythmjs/rhythm";
 import { createHttpContext, STATUS_TEXT, type RhythmHttpContext } from "./context";
 
-export function toFetchHandler<TContext extends RhythmHttpContext, TProviders extends object = {}>(
-  app: Rhythm<RhythmHttpContext, TContext, TProviders>,
+export function toFetchHandler<TContext extends RhythmHttpContext>(
+  app: Rhythm<RhythmHttpContext, any, TContext>,
 ): (request: Request) => Promise<Response> {
   const run = app.callback();
   return async (request: Request): Promise<Response> => {

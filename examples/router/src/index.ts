@@ -2,31 +2,11 @@ import { join } from "node:path";
 import { Rhythm } from "@rhythmjs/rhythm";
 import type { RhythmHttpContext } from "@rhythmjs/router/context";
 import { errorToResponse, toFetchHandler } from "@rhythmjs/router/fetch";
-import { RhythmRouter } from "@rhythmjs/router";
+import { createDatabase, type Database } from "./database";
+import { notesModule } from "./notes/notes.module";
+import { usersModule } from "./users/users.module";
 
-interface User {
-  id: string;
-  name: string;
-}
-
-const users = new Map<string, User>([
-  ["u1", { id: "u1", name: "Alice" }],
-  ["u2", { id: "u2", name: "Bob" }],
-]);
-
-const usersRouter = new RhythmRouter({ prefix: "/api/users" }).get("/:id", (ctx) => {
-  const user = users.get(ctx.params.id);
-  if (!user) {
-    ctx.error(404);
-    return;
-  }
-  ctx.json(user);
-});
-
-const apiRouter = new RhythmRouter().use(usersRouter.middleware());
-
-const app = new Rhythm<RhythmHttpContext>({ name: "app" })
-  .provide(() => ({ logger: { info: (msg: string) => console.log(`[app] ${msg}`) } }))
+const app = new Rhythm<RhythmHttpContext, { db: Database; logger: { info(msg: string): void } }>({ name: "app" })
   .use(async (ctx, next) => {
     const startedAt = Date.now();
     await next();
@@ -34,10 +14,14 @@ const app = new Rhythm<RhythmHttpContext>({ name: "app" })
       `${ctx.request.method} ${new URL(ctx.request.url).pathname} ${ctx.response.status} in ${Date.now() - startedAt}ms`,
     );
   })
-  .use(apiRouter.middleware())
+  .register(usersModule)
+  .register(notesModule)
   .use(async (ctx) => {
     ctx.error(404);
   });
+
+app.context.db = createDatabase();
+app.context.logger = { info: (msg) => console.log(`[app] ${msg}`) };
 
 const handler = toFetchHandler(app);
 const publicDir = join(import.meta.dirname, "..", "public");

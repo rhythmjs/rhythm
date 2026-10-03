@@ -577,11 +577,11 @@ describe("RhythmRouter", () => {
     });
   });
 
-  test("a router is a controller, not a module: it exposes no register() or provide()", () => {
+  test("a router is a controller, not a module: it exposes no register() or context", () => {
     const router = new RhythmRouter();
 
     expect("register" in router).toBe(false);
-    expect("provide" in router).toBe(false);
+    expect("context" in router).toBe(false);
   });
 
   describe("entries", () => {

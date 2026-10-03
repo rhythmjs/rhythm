@@ -3,8 +3,8 @@ import { parseArgv } from "./argv";
 import { createPrompt as createPromptWithIO, type RhythmPrompt, type RhythmPromptIO } from "./prompt";
 import { RhythmCliResponse, type RhythmCliContext } from "./context";
 
-export function toCliHandler<TContext extends RhythmCliContext, TProviders extends object = {}>(
-  app: Rhythm<RhythmCliContext, TContext, TProviders>,
+export function toCliHandler<TContext extends RhythmCliContext>(
+  app: Rhythm<RhythmCliContext, any, TContext>,
 ): (argv: string[]) => Promise<number> {
   const run = app.callback();
   return async (argv: string[]): Promise<number> => {

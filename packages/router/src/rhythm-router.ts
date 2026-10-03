@@ -31,6 +31,7 @@ type RouteHandler<TContext> = Middleware<TContext & RhythmRouterContext>;
 
 export function joinPath(prefix: string, path: string): string {
   if (!prefix) return path;
+  if (path === "/" || path === "") return prefix;
   const trimmedPrefix = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${trimmedPrefix}${normalizedPath}`;

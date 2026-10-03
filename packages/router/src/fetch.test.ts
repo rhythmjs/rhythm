@@ -46,16 +46,11 @@ describe("toFetchHandler()", () => {
     expect(await res.text()).toBe("not found");
   });
 
-  test("providers resolve once and are available on the request context", async () => {
-    let calls = 0;
-    const app = new Rhythm<RhythmHttpContext>()
-      .provide(() => {
-        calls++;
-        return { greeting: "hi" };
-      })
-      .use((ctx) => {
-        ctx.response.body = ctx.greeting;
-      });
+  test("startup context values are available on every request context", async () => {
+    const app = new Rhythm<RhythmHttpContext, { greeting: string }>().use((ctx) => {
+      ctx.response.body = ctx.greeting;
+    });
+    app.context.greeting = "hi";
 
     const handler = toFetchHandler(app);
     const [first, second] = await Promise.all([
@@ -65,7 +60,6 @@ describe("toFetchHandler()", () => {
 
     expect(await first.text()).toBe("hi");
     expect(await second.text()).toBe("hi");
-    expect(calls).toBe(1);
   });
 });
 

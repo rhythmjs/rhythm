@@ -209,7 +209,7 @@ describe("derive()", () => {
     expect(seen).toEqual([undefined, "Alice"]);
   });
 
-  test("keys prefixed with # are stripped, matching provide()'s convention", async () => {
+  test("keys prefixed with # are stripped from the context", async () => {
     const app = new Rhythm<{}>().use(derive(() => ({ user: "Alice", "#raw": "internal" }))).use((ctx) => {
       expect((ctx as any)["#raw"]).toBeUndefined();
       expect(ctx.user).toBe("Alice");
@@ -247,256 +247,122 @@ describe("derive()", () => {
   });
 });
 
-describe("provide()", () => {
-  test("factory runs exactly once across multiple run() calls", async () => {
-    let calls = 0;
-    const app = new Rhythm<{}>()
-      .provide(() => {
-        calls++;
-        return { value: 42 };
-      })
-      .use((ctx) => {
-        expect(ctx.value).toBe(42);
-      });
+describe("context", () => {
+  interface Db {
+    name: string;
+  }
+
+  test("startup values assigned before serving reach every run", async () => {
+    const db: Db = { name: "db" };
+    const app = new Rhythm<{}, { db: Db }>().use((ctx) => {
+      expect(ctx.db).toBe(db);
+    });
+    app.context.db = db;
 
     await app.run({});
     await app.run({});
+  });
+
+  test("assignments and reads are typed from the declared shape", async () => {
+    const app = new Rhythm<{}, { db: Db; port: number }>().use((ctx) => {
+      const name: string = ctx.db.name;
+      const port: number = ctx.port;
+      expect([name, port]).toEqual(["db", 3000]);
+    });
+    app.context.db = { name: "db" };
+    app.context.port = 3000;
+    // @ts-expect-error port is a number
+    app.context.port = "3000";
+    // @ts-expect-error unknown key
+    app.context.nope = 1;
+    app.context.port = 3000;
+
     await app.run({});
-    expect(calls).toBe(1);
   });
 
-  test("later providers receive earlier ones via deps, in declaration order", async () => {
-    const app = new Rhythm<{}>()
-      .provide(() => ({ config: { name: "svc" } }))
-      .provide((deps) => ({ label: `[${deps.config.name}]` }));
+  test("a registered module inherits the parent's context", async () => {
+    let seen: unknown;
+    const child = new Rhythm<{ db: string }>({ name: "child" }).use((ctx) => {
+      seen = ctx.db;
+    });
+    const app = new Rhythm<{}, { db: string }>().register(child);
+    app.context.db = "parent-db";
 
-    const result = await app.run({});
-    expect(result.label).toBe("[svc]");
+    await app.run({});
+    expect(seen).toBe("parent-db");
   });
 
-  test("concurrent run() calls during cold start all see the resolved value (regression)", async () => {
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    let calls = 0;
-    const app = new Rhythm<{ id: number }>()
-      .provide(async () => {
-        calls++;
-        await sleep(20);
-        return { db: { ready: true } };
-      })
-      .use((ctx) => {
-        ctx.db;
-      });
-
-    const results = await Promise.all([app.run({ id: 1 }), app.run({ id: 2 }), app.run({ id: 3 })]);
-    for (const r of results) expect(r.db).toEqual({ ready: true });
-    expect(calls).toBe(1);
-  });
-
-  test("a failed provider factory can be retried on a later run()", async () => {
-    let attempts = 0;
-    const app = new Rhythm<{}>().provide(async () => {
-      attempts++;
-      if (attempts === 1) throw new Error("transient");
-      return { ready: true };
+  test("a module's own context is visible to it but not to its parent", async () => {
+    const seen: Record<string, unknown> = {};
+    const child = new Rhythm<{}, { cache: string }>({ name: "child" }).use(async (ctx, next) => {
+      seen.child = ctx.cache;
+      await next();
+    });
+    child.context.cache = "child-cache";
+    const app = new Rhythm<{}>().register(child).use((ctx) => {
+      seen.parent = "reached";
+      seen.leaked = "cache" in ctx;
     });
 
-    await expect(app.run({})).rejects.toThrow("transient");
-    const result = await app.run({});
-    expect(result.ready).toBe(true);
-    expect(attempts).toBe(2);
+    await app.run({});
+    expect(seen).toEqual({ child: "child-cache", parent: "reached", leaked: false });
   });
 
-  test("keys prefixed with # are stripped from context but still passed in full to dispose", async () => {
-    let disposedWith: unknown;
-    const app = new Rhythm<{}>()
-      .provide(
-        () => ({ prompt: { ask: () => "hi" }, "#close": () => {} }),
-        (value) => {
-          disposedWith = value;
-        },
-      )
-      .use((ctx) => {
-        expect((ctx as any)["#close"]).toBeUndefined();
-        expect(ctx.prompt.ask()).toBe("hi");
-      });
+  test("a module's context shadows the parent's for that module only", async () => {
+    const seen: Record<string, unknown> = {};
+    const child = new Rhythm<{}, { db: string }>({ name: "child" }).use(async (ctx, next) => {
+      seen.child = ctx.db;
+      await next();
+    });
+    child.context.db = "child-db";
+    const app = new Rhythm<{}, { db: string }>().register(child).use((ctx) => {
+      seen.parent = ctx.db;
+    });
+    app.context.db = "parent-db";
 
     await app.run({});
-    await app.teardown();
-
-    expect(disposedWith).toHaveProperty("#close");
-    expect(disposedWith).toHaveProperty("prompt");
+    expect(seen).toEqual({ child: "child-db", parent: "parent-db" });
   });
 
-  test("provide() is positional: middleware registered before it doesn't see the value on the way down", async () => {
+  test("values assigned after the app is built are picked up on the next run", async () => {
     const seen: unknown[] = [];
-    const app = new Rhythm<{}>()
-      .use(async (ctx, next) => {
-        seen.push((ctx as Record<string, unknown>).value);
-        await next();
-      })
-      .provide(() => ({ value: 42 }))
-      .use((ctx) => {
-        seen.push(ctx.value);
-      });
-
-    await app.run({});
-    expect(seen).toEqual([undefined, 42]);
-  });
-
-  test("downward visibility is strictly sequential; upward (after next()) the shared context exposes everything", async () => {
-    const seen: [string, unknown, unknown][] = [];
-    const record = (label: string, ctx: object) => {
-      const c = ctx as Record<string, unknown>;
-      seen.push([label, c.fromDerive, c.fromProvide]);
-    };
-
-    const app = new Rhythm<{}>()
-      .use(async (ctx, next) => {
-        record("mw1:down", ctx);
-        await next();
-        record("mw1:up", ctx);
-      })
-      .provide(() => ({ fromProvide: "db" }))
-      .use(async (ctx, next) => {
-        record("mw2:down", ctx);
-        await next();
-        record("mw2:up", ctx);
-      })
-      .use(derive(() => ({ fromDerive: "user" })))
-      .use((ctx) => {
-        record("mw3:down", ctx);
-      });
-
-    await app.run({});
-    expect(seen).toEqual([
-      ["mw1:down", undefined, undefined],
-      ["mw2:down", undefined, "db"],
-      ["mw3:down", "user", "db"],
-      ["mw2:up", "user", "db"],
-      ["mw1:up", "user", "db"],
-    ]);
-  });
-
-  test("a plain key (no # prefix) is unaffected and reaches context as before", async () => {
-    const app = new Rhythm<{}>()
-      .provide(() => ({ value: 1, extra: "x" }))
-      .use((ctx) => {
-        expect(ctx.value).toBe(1);
-        expect(ctx.extra).toBe("x");
-      });
-
-    await app.run({});
-  });
-});
-
-describe("setup()/teardown()", () => {
-  test("setup() cascades eagerly into registered modules", async () => {
-    let childResolved = false;
-    const child = new Rhythm<{}>({ name: "child" }).provide(() => {
-      childResolved = true;
-      return {};
+    const app = new Rhythm<{}, { count: number }>().use((ctx) => {
+      seen.push(ctx.count);
     });
-
-    const app = new Rhythm<{}>().register(child);
-    await app.setup();
-    expect(childResolved).toBe(true);
+    app.context.count = 1;
+    await app.run({});
+    app.context.count = 2;
+    await app.run({});
+    expect(seen).toEqual([1, 2]);
   });
 
-  test("teardown() disposes in reverse of resolution order, cascading into registered modules", async () => {
-    const order: string[] = [];
-    const child = new Rhythm<{}>({ name: "child" }).provide(
-      () => {
-        order.push("open:child");
-        return {};
-      },
-      () => {
-        order.push("close:child");
-      },
-    );
-
-    const app = new Rhythm<{}>()
-      .provide(
-        () => {
-          order.push("open:parent");
-          return {};
-        },
-        () => {
-          order.push("close:parent");
-        },
-      )
-      .register(child);
-
-    await app.setup();
-    await app.teardown();
-
-    expect(order).toEqual(["open:parent", "open:child", "close:child", "close:parent"]);
-  });
-
-  test("run() after teardown() re-resolves providers instead of serving disposed ones (regression)", async () => {
-    let opens = 0;
-    const app = new Rhythm<{}>().provide(() => {
-      opens++;
-      return { value: opens };
+  test("per-request input wins over a startup value with the same key", async () => {
+    let seen: unknown;
+    const app = new Rhythm<{ tag?: string }, { tag?: string }>().use((ctx) => {
+      seen = ctx.tag;
     });
-
-    const first = await app.run({});
-    expect(first.value).toBe(1);
-
-    await app.teardown();
-
-    const second = await app.run({});
-    expect(opens).toBe(2);
-    expect(second.value).toBe(2);
+    app.context.tag = "startup";
+    await app.run({ tag: "request" });
+    expect(seen).toBe("request");
   });
 
-  test("setup()/teardown() cycles re-open and dispose the fresh value each time", async () => {
-    const events: string[] = [];
-    let n = 0;
-    const app = new Rhythm<{}>().provide(
-      () => {
-        n++;
-        events.push(`open:${n}`);
-        return { id: n };
-      },
-      (value: { id: number }) => {
-        events.push(`close:${value.id}`);
-      },
-    );
-
-    await app.setup();
-    await app.teardown();
-    await app.setup();
-    await app.teardown();
-
-    expect(events).toEqual(["open:1", "close:1", "open:2", "close:2"]);
+  test("register() rejects, at compile time, a module whose required context the parent doesn't have", () => {
+    const child = new Rhythm<{ db: string }>({ name: "child" });
+    // @ts-expect-error parent has no `db` in its context
+    new Rhythm<{}>().register(child);
   });
 
-  test("teardown() without setup() does not call dispose", async () => {
-    let disposed = false;
-    const app = new Rhythm<{}>().provide(
-      () => ({ value: 1 }),
-      () => {
-        disposed = true;
-      },
-    );
-
-    await app.teardown();
-    expect(disposed).toBe(false);
+  test("register() accepts a module whose required context comes from the parent's startup shape", () => {
+    const child = new Rhythm<{ db: string }>({ name: "child" });
+    new Rhythm<{}, { db: string }>().register(child);
   });
 
-  test("teardown() twice only disposes once", async () => {
-    let disposals = 0;
-    const app = new Rhythm<{}>().provide(
-      () => ({ value: 1 }),
-      () => {
-        disposals++;
-      },
-    );
-
-    await app.setup();
-    await app.teardown();
-    await app.teardown();
-    expect(disposals).toBe(1);
+  test("middleware() mounts the module's context onto the shared ctx", async () => {
+    const child = new Rhythm<{}, { greeting: string }>();
+    child.context.greeting = "hi";
+    const ctx: Record<string, unknown> = {};
+    await child.middleware()(ctx as any, (async () => ctx) as any);
+    expect(ctx.greeting).toBe("hi");
   });
 });
 
@@ -604,8 +470,9 @@ describe("use() is positional across modules and mounts", () => {
 });
 
 describe("middleware()", () => {
-  test("providers are merged into the same shared ctx object passed in, not a fresh one", async () => {
-    const child = new Rhythm<{}>().provide(() => ({ greeting: "hi" }));
+  test("context values are merged into the same shared ctx object passed in, not a fresh one", async () => {
+    const child = new Rhythm<{}, { greeting: string }>();
+    child.context.greeting = "hi";
     const mw = child.middleware();
 
     const ctx: Record<string, unknown> = {};

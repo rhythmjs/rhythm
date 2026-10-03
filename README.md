@@ -1,6 +1,6 @@
 # rhythmjs
 
-Rhythm is an opinionated, Bun-native backend framework. Applications are built the same way every time (encapsulated modules, lifecycle-managed providers, and onion-style middleware) with every context access checked at compile time: no decorators, no reflection, no DI container.
+Rhythm is an opinionated, Bun-native backend framework. Applications are built the same way every time (encapsulated modules, startup-time context, and onion-style middleware) with every context access checked at compile time: no decorators, no reflection, no DI container.
 
 This repository is the framework's core. `@rhythmjs/rhythm` is the composition kernel: it has no router and no HTTP layer of its own, by design; `@rhythmjs/router` (HTTP) and `@rhythmjs/cli` (command-line apps) are built on top of it, and the rest of the ecosystem (config, http, middleware, security, observability, openapi, ws, tasks, testing) builds on those.
 

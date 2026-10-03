@@ -167,11 +167,11 @@ describe("RhythmCli", () => {
     expect(events).toEqual(["a", "b", "m1", "c", "m1", "m2"]);
   });
 
-  test("a cli is a controller, not a module: it exposes no register() or provide()", () => {
+  test("a cli is a controller, not a module: it exposes no register() or context", () => {
     const cli = new RhythmCli();
 
     expect("register" in cli).toBe(false);
-    expect("provide" in cli).toBe(false);
+    expect("context" in cli).toBe(false);
   });
 
   describe("cli-level middleware is scoped to the cli's own commands", () => {

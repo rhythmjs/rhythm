@@ -27,14 +27,9 @@ const rootCli = new RhythmCli<RhythmCliContext & { prompt: RhythmPrompt }>()
   })
   .use(remoteCli.middleware());
 
-const app = new Rhythm<RhythmCliContext>({ name: "app" })
-  .provide(
-    () => {
-      const created = createPrompt();
-      return { prompt: created.prompt, "#close": created.close };
-    },
-    (value) => value["#close"](),
-  )
+const { prompt, close } = createPrompt();
+
+const app = new Rhythm<RhythmCliContext, { prompt: RhythmPrompt }>({ name: "app" })
   .use(async (ctx, next) => {
     if (ctx.flags.verbose) console.error(`[cli] argv: ${ctx.argv.join(" ")}`);
     await next();
@@ -44,5 +39,7 @@ const app = new Rhythm<RhythmCliContext>({ name: "app" })
     ctx.response.exit(1).printError(`Unknown command: ${ctx.argv.join(" ") || "(none)"}`);
   });
 
+app.context.prompt = prompt;
+
 process.exitCode = await toCliHandler(app)(process.argv.slice(2));
-await app.teardown();
+close();

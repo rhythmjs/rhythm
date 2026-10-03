@@ -2,12 +2,6 @@ import { compose } from "./compose";
 import { sourceOf, withSource } from "./source";
 import type { DeriveMiddleware, Middleware, OmitHashKeys } from "./types";
 
-type ProviderEntry = {
-  factory: (deps: any) => unknown;
-  dispose?: (value: any) => void | Promise<void>;
-  resolved?: unknown;
-};
-
 export interface RhythmOptions {
   name?: string;
   type?: string;
@@ -34,12 +28,21 @@ export function derive<TContext extends object, TExtra extends object>(
   return middleware as DeriveMiddleware<TContext, OmitHashKeys<TExtra>>;
 }
 
-export class Rhythm<TInput extends object = {}, TContext extends object = TInput, TProviders extends object = {}> {
+export class Rhythm<
+  TInput extends object = {},
+  TStartup extends object = {},
+  TContext extends object = TInput & TStartup,
+> {
   #middleware: Middleware<any>[] = [];
   #options: RhythmOptions;
-  #providers: ProviderEntry[] = [];
-  #setupPromise: Promise<void> | null = null;
   #sources: object[] = [];
+
+  /**
+   * Startup-time values (a db connection, config, ...). Declare the shape as the second type parameter, assign
+   * before serving, and every request context carries them. Registered modules inherit their parent's values and
+   * can add their own; a module's values never reach its parent.
+   */
+  readonly context: TStartup = {} as TStartup;
 
   parent?: Rhythm<any, any, any>;
 
@@ -57,7 +60,7 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
     this.#sources.push(source);
   }
 
-  use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): Rhythm<TInput, TContext & TExtra, TProviders>;
+  use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): Rhythm<TInput, TStartup, TContext & TExtra>;
   use(fn: Middleware<TContext>): this;
   use(fn: Middleware<TContext>): any {
     if (typeof fn !== "function") throw new TypeError("middleware must be a function!");
@@ -66,37 +69,16 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
     return this;
   }
 
-  provide<TValue extends object>(
-    factory: (deps: TProviders) => TValue | Promise<TValue>,
-    dispose?: (value: TValue) => void | Promise<void>,
-  ): Rhythm<TInput, TContext & OmitHashKeys<TValue>, TProviders & OmitHashKeys<TValue>> {
-    const entry: ProviderEntry = { factory, dispose };
-    this.#providers.push(entry);
-    this.#middleware.push(async (ctx, next) => {
-      Object.assign(ctx, publicEntries(entry.resolved as object));
-      await next();
-    });
-    return this as unknown as Rhythm<TInput, TContext & OmitHashKeys<TValue>, TProviders & OmitHashKeys<TValue>>;
-  }
-
   register<TRegInput extends object, TRegContext extends object, TExported extends object = {}>(
-    other: Rhythm<TRegInput, TRegContext, any> & (TContext extends TRegInput ? unknown : never),
+    other: Rhythm<TRegInput, any, TRegContext> & (TContext extends TRegInput ? unknown : never),
     exportValue?: (result: TRegContext) => TExported,
-  ): Rhythm<TInput, TContext & TExported, TProviders> {
-    const module = other as Rhythm<TRegInput, TRegContext, any>;
+  ): Rhythm<TInput, TStartup, TContext & TExported> {
+    const module = other as Rhythm<TRegInput, any, TRegContext>;
     this.#adopt(module);
-    this.#providers.push({
-      factory: async () => {
-        await module.setup();
-        return {};
-      },
-      dispose: () => module.teardown(),
-    });
     this.#middleware.push(async (ctx, next) => {
-      const inner = { ...ctx } as unknown as TRegContext;
+      const inner = Object.assign({ ...ctx }, module.context) as unknown as TRegContext;
       let downstream: { error: unknown } | undefined;
       try {
-        await module.setup();
         await compose<TRegContext>([...module.#middleware])(inner, async () => {
           try {
             if (exportValue) Object.assign(ctx, exportValue(inner));
@@ -113,42 +95,12 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
         throw new Error(`registered ${type} "${name}" failed`, { cause });
       }
     });
-    return this as unknown as Rhythm<TInput, TContext & TExported, TProviders>;
-  }
-
-  setup(): Promise<void> {
-    if (!this.#setupPromise) {
-      this.#setupPromise = this.#resolveProviders().catch((err) => {
-        this.#setupPromise = null;
-        throw err;
-      });
-    }
-    return this.#setupPromise;
-  }
-
-  async #resolveProviders(): Promise<void> {
-    const resolved: Record<string, unknown> = {};
-    for (const entry of this.#providers) {
-      entry.resolved = await entry.factory(resolved);
-      Object.assign(resolved, publicEntries(entry.resolved as object));
-    }
-  }
-
-  async teardown(): Promise<void> {
-    for (const entry of [...this.#providers].reverse()) {
-      if (entry.resolved === undefined) continue;
-      await entry.dispose?.(entry.resolved);
-      entry.resolved = undefined;
-    }
-    this.#setupPromise = null;
+    return this as unknown as Rhythm<TInput, TStartup, TContext & TExported>;
   }
 
   callback(): (input: TInput) => Promise<TContext> {
     const fn = compose<TContext>([...this.#middleware]);
-    return async (input: TInput) => {
-      await this.setup();
-      return fn({ ...input } as unknown as TContext);
-    };
+    return (input: TInput) => fn({ ...this.context, ...input } as unknown as TContext);
   }
 
   run(input: TInput): Promise<TContext> {
@@ -158,7 +110,7 @@ export class Rhythm<TInput extends object = {}, TContext extends object = TInput
   middleware(): Middleware<TContext> {
     const fn = compose<TContext>([...this.#middleware]);
     return withSource(async (ctx, next) => {
-      await this.setup();
+      Object.assign(ctx, this.context);
       await fn(ctx as unknown as TContext, next);
     }, this);
   }
