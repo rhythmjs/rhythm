@@ -41,13 +41,9 @@ const server = Bun.serve({
     "/": new Response(Bun.file(join(publicDir, "index.html"))),
     "/assets/*": { dir: assetsDir },
   },
-  async fetch(request, srv) {
-    Object.defineProperty(request, "ip", {
-      configurable: true,
-      get: () => srv.requestIP(request)?.address,
-    });
+  async fetch(request, server) {
     try {
-      return await handler(request);
+      return await handler(request, server);
     } catch (error) {
       return errorToResponse(error);
     }

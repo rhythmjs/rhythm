@@ -12,10 +12,10 @@ function isUntouched(response: RhythmResponse): boolean {
 
 export function toFetchHandler<I extends object = any>(
   app: Mountable<I> & (RhythmHttpContext extends I ? unknown : never),
-): (request: Request) => Promise<Response> {
+): <WebSocketData>(request: Request, server?: Bun.Server<WebSocketData>) => Promise<Response> {
   const run = app.callback();
-  return async (request) => {
-    const base = createHttpContext(request);
+  return async (request, server) => {
+    const base = createHttpContext(request, server);
     const result = (await run(base)) as Partial<RhythmHttpContext> | undefined;
     const response = result?.response ?? base.response;
     if (isUntouched(response)) {

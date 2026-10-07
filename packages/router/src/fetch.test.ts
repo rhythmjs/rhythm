@@ -107,3 +107,14 @@ test("errorToResponse finds the status through a wrapped cause chain", async () 
   expect(res.status).toBe(404);
   expect(await res.text()).toBe("missing");
 });
+
+test("toFetchHandler exposes the Bun server as ctx.server", async () => {
+  const server = { requestIP: () => ({ address: "203.0.113.7" }) } as unknown as Bun.Server<undefined>;
+  const app = new Rhythm<{}, RhythmHttpContext>().use((ctx) => {
+    ctx.text(ctx.server?.requestIP(ctx.request)?.address ?? "none");
+  });
+  const handler = toFetchHandler(app);
+
+  expect(await (await handler(new Request("http://localhost/"), server)).text()).toBe("203.0.113.7");
+  expect(await (await handler(new Request("http://localhost/"))).text()).toBe("none");
+});

@@ -10,6 +10,7 @@ export class RhythmResponse {
 
 export interface RhythmHttpContext {
   readonly request: Request;
+  readonly server: Bun.Server<any> | undefined;
   readonly response: RhythmResponse;
   json(data: unknown, status?: number): void;
   text(body: string, status?: number): void;
@@ -39,10 +40,11 @@ export const STATUS_TEXT: Record<number, string> = {
   504: "Gateway Timeout",
 };
 
-export function createHttpContext(request: Request): RhythmHttpContext {
+export function createHttpContext(request: Request, server?: Bun.Server<any>): RhythmHttpContext {
   const response = new RhythmResponse();
   return {
     request,
+    server,
     response,
     json(data: unknown, status?: number): void {
       if (status !== undefined) response.status = status;

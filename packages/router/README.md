@@ -39,6 +39,7 @@ Bun.serve({ port: 3000, fetch: toFetchHandler(app) });
 - **`ctx.params`**: captured path params, typed from the path: `/users/:id` gives `params.id: string`, `:id?` is `string | undefined`, and reading a name that is not in the path is a compile error. In `use()` middleware, params are an untyped `Record<string, string>`, since several routes may match.
 - **Strict context.** Like `Rhythm`, the route context only has what was added: `ctx.nope` is a compile error, and `derive()` (router-level or as a route's first handler) is how you widen it. A route-level `derive` only affects that route.
 - **Apps and the fetch handler.** Inside an app's own middleware, `ctx.request`/`ctx.response` are typed only if the app declares them as input: `new Rhythm<{}, RhythmHttpContext>()`. `toFetchHandler(app)` rejects, at compile time, an app that requires any other input.
+- **`ctx.server`.** The handler is `(request, server?)`, matching Bun's `fetch(request, server)`. Pass the server through and every handler gets the typed `Bun.Server` as `ctx.server` (for `ctx.server?.requestIP(ctx.request)`, `publish`, `upgrade`, …); without it, `ctx.server` is `undefined`.
 - **Errors.** A route that throws makes the handler reject; mounted plugins wrap failures as `mounted router "name" failed` with the original as `cause`. `errorToResponse` looks through the `cause` chain for a declared status.
 
 ## API
@@ -69,14 +70,9 @@ const handler = toFetchHandler(app);
 const server = Bun.serve({
   port: 3000,
   async fetch(request, srv) {
-    // Optional: expose the client address as request.ip, the field
-    // @rhythmjs/security's rate limit and @rhythmjs/http's proxy key off.
-    Object.defineProperty(request, "ip", {
-      configurable: true,
-      get: () => srv.requestIP(request)?.address,
-    });
     try {
-      return await handler(request);
+      // Passing the server makes it available as ctx.server in every handler.
+      return await handler(request, srv);
     } catch (error) {
       return errorToResponse(error);
     }
