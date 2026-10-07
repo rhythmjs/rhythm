@@ -122,11 +122,16 @@ test("withPrompt adds a typed prompt", () => {
   expect(true).toBe(true);
 });
 
-test("mount requires the parent to supply what the cli needs", () => {
+test("mount infers what the cli needs from the parent's input", () => {
   const needsConfig = new RhythmCli<{ config: string }>();
   new Rhythm().register(decorate(() => ({ config: "x" }))).use(mount(needsConfig));
-  // @ts-expect-error parent has no config
-  new Rhythm().use(mount(needsConfig));
+  const widened = new Rhythm().use(mount(needsConfig));
+  const neverRuns = () => {
+    // @ts-expect-error config becomes required input
+    void widened.callback()();
+    void widened.callback()({ config: "x" } as never);
+  };
+  void neverRuns;
   const own = new RhythmCli().use(derive(() => ({ own: 1 })));
   new Rhythm().use(mount(own));
   expect(true).toBe(true);

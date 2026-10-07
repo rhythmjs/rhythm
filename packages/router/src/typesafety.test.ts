@@ -99,7 +99,7 @@ test("router derive can read the request context and params", () => {
   new RhythmRouter().use(
     derive((ctx) => {
       const request: Request = ctx.request;
-    void request;
+      void request;
       assertType<Equal<typeof ctx.params, Record<string, string>>>();
       return { method: ctx.request.method };
     }),
