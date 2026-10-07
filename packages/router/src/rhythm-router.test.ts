@@ -501,3 +501,7 @@ test("a route derive only applies to its own route", async () => {
 test("RhythmRouter is a Pipeline", () => {
   expect(new RhythmRouter()).toBeInstanceOf(Pipeline);
 });
+
+test("rejects a route path that does not start with a slash", () => {
+  expect(() => new RhythmRouter().get("users", () => {})).toThrow(TypeError);
+});

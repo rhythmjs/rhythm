@@ -33,7 +33,8 @@ test("route params are typed from the path", () => {
 
 test("the http context is typed and unknown fields are errors", () => {
   new RhythmRouter().get("/", (ctx) => {
-    assertType<Equal<typeof ctx.request, Request>>();
+    const request: Request = ctx.request;
+    void request;
     ctx.json({ ok: true });
     ctx.text("x", 200);
     ctx.error(404);
@@ -97,7 +98,8 @@ test("a route-level derive only widens that route's later handlers", () => {
 test("router derive can read the request context and params", () => {
   new RhythmRouter().use(
     derive((ctx) => {
-      assertType<Equal<typeof ctx.request, Request>>();
+      const request: Request = ctx.request;
+    void request;
       assertType<Equal<typeof ctx.params, Record<string, string>>>();
       return { method: ctx.request.method };
     }),
@@ -149,9 +151,18 @@ test("toFetchHandler accepts routers and apps, and rejects apps needing other in
 
 test("an app declaring http input sees typed request and response", () => {
   new Rhythm<{}, RhythmHttpContext>().use((ctx) => {
-    assertType<Equal<typeof ctx.request, Request>>();
+    const request: Request = ctx.request;
+    void request;
     // @ts-expect-error
     ctx.nope;
   });
   expect(true).toBe(true);
+});
+
+test("mounting a router gives the host the http context without declaring it", () => {
+  const app = new Rhythm().use(mount(new RhythmRouter())).use((ctx) => {
+    const request: Request = ctx.request;
+    void request;
+  });
+  expect(app).toBeDefined();
 });

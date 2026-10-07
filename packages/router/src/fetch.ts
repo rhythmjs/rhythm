@@ -1,4 +1,4 @@
-import type { Mountable } from "@rhythmjs/rhythm";
+import { Rhythm, type Mountable } from "@rhythmjs/rhythm";
 import { RhythmResponse, STATUS_TEXT, createHttpContext, toResponse, type RhythmHttpContext } from "./context";
 
 function isUntouched(response: RhythmResponse): boolean {
@@ -27,6 +27,22 @@ export function toFetchHandler<I extends object = any>(
     }
     return toResponse(response);
   };
+}
+
+function applyResponse(ctx: RhythmHttpContext, response: Response): void {
+  ctx.response.status = response.status;
+  ctx.response.statusText = response.statusText;
+  for (const [name, value] of response.headers) {
+    if (name === "set-cookie") ctx.response.headers.append(name, value);
+    else ctx.response.headers.set(name, value);
+  }
+  ctx.response.body = response.body;
+}
+
+export function fromFetch(handler: (request: Request) => Response | Promise<Response>) {
+  return new Rhythm<{}, RhythmHttpContext>({ name: "fetch" }).use(async (ctx) => {
+    applyResponse(ctx, await handler(ctx.request));
+  });
 }
 
 function declaredStatus(error: unknown): number | undefined {

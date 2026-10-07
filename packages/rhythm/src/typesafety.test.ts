@@ -231,3 +231,10 @@ test("mount only widens the input by what the parent has not already supplied", 
   assertType<Equal<Parameters<ReturnType<typeof app.callback>>[0], { request: Request }>>();
   expect(true).toBe(true);
 });
+
+test("a typed condition on mount widens the parent's input", () => {
+  const child = new Rhythm();
+  const app = new Rhythm().use(mount(child, (ctx: { id: number }) => ctx.id > 0));
+  assertType<Equal<Parameters<ReturnType<typeof app.callback>>[0], { id: number }>>();
+  expect(true).toBe(true);
+});

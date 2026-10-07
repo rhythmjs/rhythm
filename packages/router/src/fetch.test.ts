@@ -2,7 +2,7 @@ import { test, expect, spyOn } from "bun:test";
 import { Rhythm, mount } from "@rhythmjs/rhythm";
 import type { RhythmHttpContext } from "./context";
 import { RhythmRouter } from "./rhythm-router";
-import { errorToResponse, toFetchHandler } from "./fetch";
+import { errorToResponse, fromFetch, toFetchHandler } from "./fetch";
 
 test("toFetchHandler turns a request into a Response through the app", async () => {
   const app = new Rhythm<{}, RhythmHttpContext>().use(async (ctx, next) => {
@@ -117,4 +117,25 @@ test("toFetchHandler exposes the Bun server as ctx.server", async () => {
 
   expect(await (await handler(new Request("http://localhost/"), server)).text()).toBe("203.0.113.7");
   expect(await (await handler(new Request("http://localhost/"))).text()).toBe("none");
+});
+
+test("fromFetch writes a Web Response into the context, mounted with a condition", async () => {
+  const headers = new Headers({ "x-id": "7" });
+  headers.append("set-cookie", "a=1; Path=/");
+  headers.append("set-cookie", "b=2; Path=/");
+  const app = new Rhythm().use(
+    mount(
+      fromFetch(async () => new Response("created", { status: 201, statusText: "Created", headers })),
+      (ctx: RhythmHttpContext) => new URL(ctx.request.url).pathname === "/hook",
+    ),
+  );
+  const handler = toFetchHandler(app);
+
+  const hit = await handler(new Request("http://localhost/hook"));
+  expect(hit.status).toBe(201);
+  expect(hit.headers.get("x-id")).toBe("7");
+  expect(hit.headers.getSetCookie()).toEqual(["a=1; Path=/", "b=2; Path=/"]);
+  expect(await hit.text()).toBe("created");
+
+  expect((await handler(new Request("http://localhost/other"))).status).toBe(404);
 });

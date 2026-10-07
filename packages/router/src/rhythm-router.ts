@@ -39,7 +39,7 @@ function decodeParams(params: Record<string, string> | undefined) {
 }
 
 export class RhythmRouter<I extends object = {}, D extends object = {}> extends Pipeline<UseContext<I & D>> {
-  declare readonly "~input"?: I;
+  declare readonly "~input"?: I & RhythmHttpContext;
 
   #routes = createRouter<Route<I & D>>();
 
@@ -124,6 +124,7 @@ export class RhythmRouter<I extends object = {}, D extends object = {}> extends 
   }
 
   #route(method: string, path: string, handlers: Middleware<any>[]): this {
+    if (!path.startsWith("/")) throw new TypeError(`route path must start with "/", got "${path}"`);
     const chain = compose(handlers as Middleware<RouterContext<I & D>>[]);
     addRoute(this.#routes, method, path, (ctx) => chain(ctx));
     return this;

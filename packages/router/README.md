@@ -52,6 +52,22 @@ Bun.serve({ port: 3000, fetch: toFetchHandler(app) });
 - `createHttpContext(request)` / `toResponse(response)` (`@rhythmjs/router/context`): the request context and its conversion to a `Response`.
 - `toFetchHandler(app)` (`@rhythmjs/router/fetch`): bridges a `Rhythm` app (or router) to a Web-standard `(Request) => Promise<Response>` handler. Errors reject.
 - `errorToResponse(error)` (`@rhythmjs/router/fetch`): maps a thrown error to a `Response`.
+- `fromFetch(handler)` (`@rhythmjs/router/fetch`): wraps a fetch-style `(request) => Response` handler (Better Auth, tRPC, a webhook SDK) as a mountable. The returned `Response` becomes the response (status, headers, body stream; every `Set-Cookie` is kept).
+- `pathIs(pattern)` (`@rhythmjs/router/path`): a condition for `mount(plugin, condition)` that is true when the request path matches `pattern`, using the same rou3 conventions as routes; the HTTP method is not part of the match, and a pattern without a leading `/` throws a `TypeError`.
+
+```ts
+import { fromFetch } from "@rhythmjs/router/fetch";
+import { pathIs } from "@rhythmjs/router/path";
+
+const app = new Rhythm()
+  .use(
+    mount(
+      fromFetch((request) => auth.handler(request)),
+      pathIs("/api/auth/**"),
+    ),
+  )
+  .use(mount(router));
+```
 
 ## Serving: your Bun.serve, no wrapper
 
