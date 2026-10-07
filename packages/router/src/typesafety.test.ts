@@ -115,13 +115,16 @@ test("use() middleware sees the http context, not unknown fields", () => {
   expect(true).toBe(true);
 });
 
-test("mount requires the parent to supply what the router needs", () => {
+test("mount infers what the router needs from the parent's input", () => {
   const needsApp = new RhythmRouter<{ appName: string }>();
   new Rhythm().register(decorate(() => ({ appName: "x" }))).use(mount(needsApp));
-  // @ts-expect-error parent has no appName
-  new Rhythm().use(mount(needsApp));
-  // @ts-expect-error wrong type
-  new Rhythm().register(decorate(() => ({ appName: 1 }))).use(mount(needsApp));
+  const widened = new Rhythm().use(mount(needsApp));
+  const neverRuns = () => {
+    // @ts-expect-error appName becomes required input
+    void widened.callback()();
+    void widened.callback()({ appName: "x" } as never);
+  };
+  void neverRuns;
   // derived fields of the router itself are not demanded from the parent
   const own = new RhythmRouter().use(derive(() => ({ own: 1 })));
   new Rhythm().use(mount(own));

@@ -5,9 +5,11 @@ import type {
   ExtensionMiddleware,
   ExtensionRegister,
   Middleware,
+  MountMiddleware,
   PipelineOptions,
   RegisterCallback,
   RhythmHandler,
+  WidenInput,
 } from "./types";
 
 export { compose } from "./compose";
@@ -66,8 +68,9 @@ export class Rhythm<S extends object = {}, I extends object = {}, D extends obje
   }
 
   override use<U extends object>(middleware: ExtensionMiddleware<S & I & D, U>): Rhythm<S, I, D & U>;
+  override use<X extends object>(middleware: MountMiddleware<X>): Rhythm<S, WidenInput<S & I & D, I, X>, D>;
   override use(middleware: Middleware<S & I & D>): this;
-  override use(middleware: Middleware<S & I & D>) {
+  override use(middleware: Middleware<any>): any {
     return super.use(middleware);
   }
 

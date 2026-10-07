@@ -117,14 +117,15 @@ describe("typed input", () => {
     void required.callback()({ name: 1 });
   });
 
-  test("mount/include reject a parent that cannot supply the input", () => {
+  test("include rejects a parent that cannot supply the input; mount widens it", () => {
     const needsName = new Rhythm<{}, { name: string }>();
     const ok = new Rhythm<{ name: string }>();
     ok.use(mount(needsName));
     ok.register(include(needsName));
     const bare = new Rhythm();
-    // @ts-expect-error parent context lacks `name`
-    bare.use(mount(needsName));
+    // @ts-expect-error the widened app now requires `name` as input
+    void bare.use(mount(needsName)).callback()();
+    void bare.use(mount(needsName)).callback()({ name: "x" });
     // @ts-expect-error parent context lacks `name`
     bare.register(include(needsName));
   });

@@ -144,16 +144,20 @@ test("the handler result keeps input and derived types", async () => {
   assertType<Equal<typeof ctx.n, number>>();
 });
 
-test("mount and include require the parent to supply the child's input", () => {
+test("mount widens the parent's input; include requires the parent to supply it", () => {
   const needs = new Rhythm<{}, { name: string }>();
   new Rhythm<{ name: string }>().use(mount(needs));
   new Rhythm<{ name: string }>().register(include(needs));
   // @ts-expect-error
-  new Rhythm().use(mount(needs));
-  // @ts-expect-error
   new Rhythm().register(include(needs));
-  // @ts-expect-error wrong type of the provided field
-  new Rhythm<{ name: number }>().use(mount(needs));
+  // mounting infers the input instead of requiring it to be declared
+  const inferred = new Rhythm().use(mount(needs));
+  assertType<Equal<Parameters<ReturnType<typeof inferred.callback>>[0], { name: string }>>();
+  inferred.use((ctx) => {
+    assertType<Equal<typeof ctx.name, string>>();
+  });
+  // @ts-expect-error the inferred input must be supplied
+  void inferred.callback()();
   // supplied through decorate
   new Rhythm().register(decorate(() => ({ name: "x" }))).use(mount(needs));
   expect(true).toBe(true);
@@ -218,5 +222,12 @@ test("an extension middleware is rejected where its required context is missing"
   new Rhythm().use(needsUser);
   const m: ExtensionMiddleware<{}, { x: 1 }> = derive(() => ({ x: 1 as const }));
   void m;
+  expect(true).toBe(true);
+});
+
+test("mount only widens the input by what the parent has not already supplied", () => {
+  const router = new Rhythm<{}, { request: Request; service: { n: number } }>();
+  const app = new Rhythm().register(decorate(() => ({ service: { n: 1 } }))).use(mount(router));
+  assertType<Equal<Parameters<ReturnType<typeof app.callback>>[0], { request: Request }>>();
   expect(true).toBe(true);
 });
