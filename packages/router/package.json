@@ -1,6 +1,6 @@
 {
   "name": "@rhythmjs/router",
-  "version": "0.0.19",
+  "version": "0.0.20",
   "description": "Bun-native HTTP router for Rhythm: RhythmRouter plus a fetch handler for Bun.serve, matching with rou3.",
   "homepage": "https://rhythm.js.org/router",
   "license": "ISC",
