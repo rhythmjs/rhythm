@@ -2,7 +2,7 @@
 
 The HTTP layer of Rhythm, the Bun-native backend framework: web-standard (`Request`/`Response`) routing on top of the `@rhythmjs/rhythm` kernel, served on `Bun.serve`. `RhythmRouter` matches routes with [rou3](https://github.com/h3js/rou3), the router that powers h3 (a static segment always wins over a `:param` segment, regardless of registration order).
 
-Route patterns follow rou3's conventions: `:name` params (`:name?` optional, `:id(\\d+)` regex-constrained), `*` for one unnamed segment (captured as `params["0"]`), and `**` for the rest of the path (`params._`, or `params.name` with `**:name`). Param values are URI-decoded; a malformed escape does not match.
+Route patterns follow rou3's conventions: `:name` params (`:name?` optional, `:id(\\d+)` regex-constrained), `*` for an unnamed wildcard (captured as `params["0"]`; with the installed rou3 it spans several segments, so use `:name` for exactly one segment), and `**` for the rest of the path (`params._`, or `params.name` with `**:name`). Param values are URI-decoded; a malformed escape does not match.
 
 `RhythmRouter` is a `Pipeline`, like `Rhythm`: it has request-time `use()` middleware and routes, but no startup phase. Startup work (`register`, `decorate`, `include`) belongs to the `Rhythm` app that mounts it with `mount(router)`.
 
@@ -118,4 +118,8 @@ Directory routes (`{ dir }`, path must end in `/*`) come with content types, `La
 
 ### WebSockets
 
-[`@rhythmjs/ws`](https://github.com/rhythmjs/ws) plugs into the same hand-wired `fetch`: its `upgrade()` returns `null` synchronously for non-websocket requests, so it composes as `ws.upgrade(request, srv) ?? handler(request)`, with `websocket: ws.websocket` on the same `Bun.serve` call.
+[`@rhythmjs/ws`](https://github.com/rhythmjs/ws) is a pipeline like the router: mount it beside your routers with `mount(ws)`, and pass `websocket` to the same `Bun.serve` call. Its routes call Bun's `ctx.server.upgrade()`, which is why the fetch handler must be given the server (`fetch: toFetchHandler(app)`).
+
+```ts
+Bun.serve({ fetch: toFetchHandler(new Rhythm().use(mount(router)).use(mount(ws))), websocket });
+```

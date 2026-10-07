@@ -1,6 +1,6 @@
 {
   "name": "@rhythmjs/rhythm",
-  "version": "0.0.20",
+  "version": "0.0.21",
   "description": "A minimal, type-safe middleware and startup-composition kernel: register() at startup, use() per request, with derive, decorate, mount and include.",
   "homepage": "https://rhythm.js.org/rhythm",
   "license": "ISC",

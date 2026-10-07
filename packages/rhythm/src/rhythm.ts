@@ -27,6 +27,7 @@ export class Rhythm<S extends object = {}, I extends object = {}, D extends obje
   #ctx = {} as S;
   #cleanups: (() => unknown)[] = [];
   #ready?: Promise<unknown>;
+  #tail?: Promise<unknown>;
 
   protected override readonly transparent = true;
 
@@ -38,14 +39,24 @@ export class Rhythm<S extends object = {}, I extends object = {}, D extends obje
   register(callback: RegisterCallback<S>, cleanup?: CleanupCallback<S>): this;
   register(callback: RegisterCallback<S>, cleanup?: CleanupCallback<any>) {
     this.adopt(sourceOf(callback));
-    const result = callback(this.#ctx, this);
-    if (result instanceof Promise) {
-      this.#ready = Promise.all([this.#ready, result]);
+    if (this.#tail) {
+      this.#track(this.#tail.then(() => callback(this.#ctx, this)));
+    } else {
+      const result = callback(this.#ctx, this);
+      if (result instanceof Promise) this.#track(result);
     }
     if (cleanup) {
       this.#cleanups.push(() => cleanup(this.#ctx, this));
     }
     return this;
+  }
+
+  #track(pending: Promise<unknown>): void {
+    this.#ready = this.#tail = pending;
+    const clear = () => {
+      if (this.#tail === pending) this.#tail = undefined;
+    };
+    pending.then(clear, clear);
   }
 
   async stop(): Promise<void> {

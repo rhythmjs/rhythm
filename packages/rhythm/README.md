@@ -6,7 +6,7 @@ The composition kernel at the core of Rhythm, the Bun-native backend framework, 
 
 Rhythm separates **when** something happens:
 
-- **Startup time: `register()`.** Runs a callback once, immediately, against the app's shared startup context. Use it to create what lives for the whole process (a DB connection, config) and, optionally, how to close it. `stop()` runs the cleanups in reverse order.
+- **Startup time: `register()`.** Runs a callback once against the app's shared startup context: immediately, or, if an earlier `register` is still pending, right after it settles, so a callback always sees what the ones before it added (a failed one skips the rest and fails the app). Use it to create what lives for the whole process (a DB connection, config) and, optionally, how to close it. `stop()` runs the cleanups in reverse order.
 - **Request time: `use()`.** Adds an onion middleware step that runs on every call of the handler, before _and_ after `next()`.
 
 Four small composable functions plug into those two methods, each for one purpose:
@@ -53,7 +53,7 @@ await app.stop(); // shut down
 
 ## Startup: `register()`
 
-`register(callback, cleanup?)` calls `callback(ctx, app)` right away with the shared startup context. Return a promise and the first request waits for it. `cleanup(ctx, app)` is optional and runs on `stop()`; if several cleanups throw, `stop()` still runs all of them and rejects with an `AggregateError`. `Rhythm` is also `AsyncDisposable`, so `await using app = ...` stops it for you.
+`register(callback, cleanup?)` calls `callback(ctx, app)` with the shared startup context, right away unless an earlier `register` is still pending. Registrations run in order, so a callback sees everything the earlier ones added, even async ones (`include`, a database connection). Return a promise and the first request waits for it; if one fails, the later ones are skipped and the first request rejects. `cleanup(ctx, app)` is optional and runs on `stop()`; if several cleanups throw, `stop()` still runs all of them and rejects with an `AggregateError`. `Rhythm` is also `AsyncDisposable`, so `await using app = ...` stops it for you.
 
 ```ts
 const app = new Rhythm().register(

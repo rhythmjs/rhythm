@@ -804,3 +804,74 @@ test("compose is standalone and works with any ctx", async () => {
 
   expect(ctx.log).toEqual(["a", "b", "c"]);
 });
+
+test("register waits for earlier async registrations, so it sees what they added", async () => {
+  const seen: unknown[] = [];
+  const app = new Rhythm()
+    .register(async (ctx) => {
+      await Bun.sleep(5);
+      Object.assign(ctx, { db: "pg" });
+    })
+    .register((ctx) => void seen.push((ctx as { db?: string }).db))
+    .register(decorate((ctx: { db?: string }) => ({ service: `service:${ctx.db}` })));
+
+  const ctx = await app.callback()();
+
+  expect(seen).toEqual(["pg"]);
+  expect((ctx as unknown as { service: string }).service).toBe("service:pg");
+});
+
+test("register stays synchronous until an async registration is pending", async () => {
+  const order: string[] = [];
+  const app = new Rhythm();
+  app.register(() => void order.push("sync-1"));
+  expect(order).toEqual(["sync-1"]);
+
+  app.register(async () => {
+    await Bun.sleep(1);
+    order.push("async");
+  });
+  app.register(() => void order.push("after-async"));
+  expect(order).toEqual(["sync-1"]);
+
+  await app.callback()();
+  expect(order).toEqual(["sync-1", "async", "after-async"]);
+
+  app.register(() => void order.push("sync-2"));
+  expect(order).toEqual(["sync-1", "async", "after-async", "sync-2"]);
+});
+
+test("a failed registration skips the ones after it and fails the app", async () => {
+  const ran: string[] = [];
+  const app = new Rhythm()
+    .register(async () => {
+      await Bun.sleep(1);
+      throw new Error("db down");
+    })
+    .register(() => void ran.push("never"));
+
+  await expect(app.callback()()).rejects.toThrow("db down");
+  expect(ran).toEqual([]);
+});
+
+test("a register inside a deferred registration is queued after it, and cleanups still stop in reverse order", async () => {
+  const log: string[] = [];
+  const app = new Rhythm();
+  app.register(
+    async (_ctx, self) => {
+      await Bun.sleep(1);
+      log.push("outer");
+      self.register(
+        () => void log.push("inner"),
+        () => void log.push("stop-inner"),
+      );
+    },
+    () => void log.push("stop-outer"),
+  );
+  app.register(() => void log.push("later"));
+
+  await app.callback()();
+  await app.stop();
+
+  expect(log).toEqual(["outer", "later", "inner", "stop-inner", "stop-outer"]);
+});
