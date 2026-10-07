@@ -41,7 +41,9 @@
     "access": "public"
   },
   "scripts": {
-    "build": "rm -rf dist && bun build src/rhythm-cli.ts src/argv.ts src/prompt.ts src/context.ts src/run.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "prebuild": "bun run clean",
+    "build": "bun build src/rhythm-cli.ts src/argv.ts src/prompt.ts src/context.ts src/run.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
     "prepublishOnly": "bun run typecheck && bun test && bun run build",
     "typecheck": "tsc --noEmit",
     "test": "bun test"

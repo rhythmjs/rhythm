@@ -20,7 +20,9 @@
     "access": "public"
   },
   "scripts": {
-    "build": "rm -rf dist && bun build src/bin.ts --outdir dist --root src --format esm --target bun --packages external",
+    "clean": "rm -rf dist",
+    "prebuild": "bun run clean",
+    "build": "bun build src/bin.ts --outdir dist --root src --format esm --target bun --packages external",
     "prepublishOnly": "bun run typecheck && bun test && bun run build",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
