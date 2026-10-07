@@ -1,30 +1,59 @@
-import type { Rhythm } from "@rhythmjs/rhythm";
-import { createHttpContext, STATUS_TEXT, type RhythmHttpContext } from "./context";
+import type { Mountable } from "@rhythmjs/rhythm";
+import { RhythmResponse, STATUS_TEXT, createHttpContext, toResponse, type RhythmHttpContext } from "./context";
 
-export function toFetchHandler<TContext extends RhythmHttpContext>(
-  app: Rhythm<RhythmHttpContext, any, TContext>,
+function isUntouched(response: RhythmResponse): boolean {
+  return (
+    response.status === 200 &&
+    response.statusText === undefined &&
+    response.body === null &&
+    [...response.headers].length === 0
+  );
+}
+
+export function toFetchHandler<I extends object = any>(
+  app: Mountable<I> & (RhythmHttpContext extends I ? unknown : never),
 ): (request: Request) => Promise<Response> {
   const run = app.callback();
-  return async (request: Request): Promise<Response> => {
-    const ctx = await run(createHttpContext(request));
-    const response = ctx.response;
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    });
+  return async (request) => {
+    const base = createHttpContext(request);
+    const result = (await run(base)) as Partial<RhythmHttpContext> | undefined;
+    const response = result?.response ?? base.response;
+    if (isUntouched(response)) {
+      const fallback = new RhythmResponse();
+      fallback.status = 404;
+      fallback.headers.set("content-type", "text/plain; charset=utf-8");
+      fallback.body = STATUS_TEXT[404]!;
+      return toResponse(fallback);
+    }
+    return toResponse(response);
   };
 }
 
+function declaredStatus(error: unknown): number | undefined {
+  const { status, statusCode } = (error ?? {}) as { status?: number; statusCode?: number };
+  const declared = status ?? statusCode;
+  return Number.isInteger(declared) && declared! >= 400 && declared! <= 599 ? declared : undefined;
+}
+
+function rootCause(error: unknown): unknown {
+  for (let current = error, depth = 0; depth < 16; depth++) {
+    if (declaredStatus(current) !== undefined) return current;
+    const cause = (current as { cause?: unknown } | null | undefined)?.cause;
+    if (cause === undefined) return current;
+    current = cause;
+  }
+  return error;
+}
+
 export function errorToResponse(error: unknown): Response {
-  const declared = (error as { status?: number }).status ?? (error as { statusCode?: number }).statusCode;
-  const status = Number.isInteger(declared) && declared! >= 400 && declared! <= 599 ? declared! : 500;
+  const source = rootCause(error);
+  const status = declaredStatus(source) ?? 500;
   if (status >= 500) console.error(error);
-  const expose = status < 500 && (error as { expose?: boolean }).expose !== false;
+  const expose = status < 500 && (source as { expose?: boolean }).expose !== false;
   const message = expose
-    ? error instanceof Error
-      ? error.message
-      : String(error)
+    ? source instanceof Error
+      ? source.message
+      : String(source)
     : status >= 500
       ? "Internal Server Error"
       : (STATUS_TEXT[status] ?? `Error ${status}`);

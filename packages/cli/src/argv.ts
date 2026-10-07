@@ -1,3 +1,5 @@
+import { derive, type ExtensionMiddleware } from "@rhythmjs/rhythm";
+
 export interface ParsedArgv {
   positionals: string[];
   flags: Record<string, string | boolean>;
@@ -53,4 +55,8 @@ export function parseArgv(argv: readonly string[]): ParsedArgv {
   }
 
   return { positionals, flags };
+}
+
+export function withParsedArgv(): ExtensionMiddleware<{ argv: readonly string[] }, ParsedArgv> {
+  return derive((ctx: { argv: readonly string[] }) => parseArgv(ctx.argv));
 }

@@ -1,42 +1,23 @@
-import type { Rhythm } from "@rhythmjs/rhythm";
-import { parseArgv } from "./argv";
-import { createPrompt as createPromptWithIO, type RhythmPrompt, type RhythmPromptIO } from "./prompt";
-import { RhythmCliResponse, type RhythmCliContext } from "./context";
+import type { Mountable } from "@rhythmjs/rhythm";
+import { createCliContext, type CliIO, type RhythmCliContext } from "./context";
 
-export function toCliHandler<TContext extends RhythmCliContext>(
-  app: Rhythm<RhythmCliContext, any, TContext>,
+export function toCliHandler<I extends object = any>(
+  app: Mountable<I> & (RhythmCliContext extends I ? unknown : never),
+  io?: CliIO,
 ): (argv: string[]) => Promise<number> {
   const run = app.callback();
-  return async (argv: string[]): Promise<number> => {
-    const { flags } = parseArgv(argv);
-    const stdin = process.stdin.isTTY ? null : (Bun.stdin.stream() as unknown as ReadableStream<Uint8Array>);
-
-    const ctx = await run({ argv, flags, stdin, response: new RhythmCliResponse() });
-
-    for (const line of ctx.response.stdout) console.log(line);
-    for (const line of ctx.response.stderr) console.error(line);
-
-    return ctx.response.exitCode;
+  return async (argv) => {
+    const base = createCliContext(argv, io);
+    try {
+      const result = (await run(base)) as (Partial<RhythmCliContext> & { params?: unknown }) | undefined;
+      if (result?.params === undefined) {
+        base.fail(argv.length ? `unknown command '${argv[0]}'` : "no command given", 2);
+        return base.exitCode;
+      }
+      return result.exitCode ?? base.exitCode;
+    } catch (error) {
+      base.fail(error instanceof Error ? error.message : String(error));
+      return base.exitCode;
+    }
   };
-}
-
-function defaultPromptIO(): RhythmPromptIO {
-  const lines = console[Symbol.asyncIterator]();
-  return {
-    ask: async (query) => {
-      process.stdout.write(query);
-      const { value } = await lines.next();
-      return value ?? "";
-    },
-    write: (text) => {
-      process.stdout.write(text);
-    },
-    close: () => {
-      void lines.return?.();
-    },
-  };
-}
-
-export function createPrompt(): { prompt: RhythmPrompt; close: () => void } {
-  return createPromptWithIO(defaultPromptIO());
 }

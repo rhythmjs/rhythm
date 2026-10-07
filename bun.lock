@@ -41,9 +41,10 @@
     },
     "packages/cli": {
       "name": "@rhythmjs/cli",
-      "version": "0.0.14",
+      "version": "0.0.16",
       "dependencies": {
         "@rhythmjs/rhythm": "workspace:*",
+        "rou3": "^1.0.0",
       },
       "devDependencies": {
         "@types/bun": "^1.4.2",
@@ -53,7 +54,7 @@
     },
     "packages/rhythm": {
       "name": "@rhythmjs/rhythm",
-      "version": "0.0.14",
+      "version": "0.0.16",
       "devDependencies": {
         "@types/bun": "^1.4.2",
         "@types/node": "^26.6.3",
@@ -62,13 +63,12 @@
     },
     "packages/rhythmx": {
       "name": "rhythmx",
-      "version": "0.0.13",
+      "version": "0.0.16",
       "bin": {
         "rhythm": "./dist/bin.js",
       },
       "dependencies": {
         "@rhythmjs/cli": "workspace:*",
-        "@rhythmjs/rhythm": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "^1.4.2",
@@ -78,10 +78,10 @@
     },
     "packages/router": {
       "name": "@rhythmjs/router",
-      "version": "0.0.13",
+      "version": "0.0.16",
       "dependencies": {
         "@rhythmjs/rhythm": "workspace:*",
-        "rou3": "^0.11.0",
+        "rou3": "^1.0.0",
       },
       "devDependencies": {
         "@types/bun": "^1.2.0",
@@ -189,7 +189,7 @@
 
     "rhythmx": ["rhythmx@workspace:packages/rhythmx"],
 
-    "rou3": ["rou3@0.11.0", "", {}, "sha512-QYkFgNURTMBzmDpfFOpJNscLALbTlmFG/TGl4JVENesWNnrPAt7XHcml56Esb7fprnSRk4iwbgkmpZEPfX5MsA=="],
+    "rou3": ["rou3@1.0.0", "", {}, "sha512-ySeaQkSrua+ut9g+65I7FHqOFBaY8tV0FmccXItoq0q21se32Q3u4YiW7/RqXSosWgYJaaKwRHXy3BST9PeCNQ=="],
 
     "router-example": ["router-example@workspace:examples/router"],
 

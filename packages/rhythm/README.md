@@ -1,92 +1,130 @@
 # @rhythmjs/rhythm
 
-The composition kernel at the core of Rhythm, the Bun-native backend framework, the piece `@rhythmjs/router` and `@rhythmjs/cli` are built on. It gives an application its structure (onion middleware, startup-time context, encapsulated modules, all checked at compile time) and deliberately nothing else: no router, no HTTP layer, and never will be.
+The composition kernel at the core of Rhythm, the Bun-native backend framework, the piece `@rhythmjs/router` and `@rhythmjs/cli` are built on. It gives an application its structure (startup-time setup, request-time onion middleware, encapsulated modules, all checked at compile time) and deliberately nothing else: no router, no HTTP layer, and never will be.
 
 ## Concepts
 
-- **Onion middleware**: `use()` wraps downstream steps, running code before _and_ after `next()`.
-- **Startup vs request time**: Rhythm only handles request time. Anything created at startup (a DB connection, a config object) is created by you, before serving, and handed to the app by assigning to `app.context`. Rhythm has no setup or teardown phase; you close what you opened.
-- **Startup context**: `app.context` is a plain object typed by the second type parameter, `Rhythm<TInput, TStartup>`. Everything assigned to it is on every request context. Declare the shape once; assignments and reads are then checked.
-- **Encapsulated modules**: `register()` mounts a child `Rhythm`; its context stays sealed unless you explicitly export fields from it.
-- **Readonly context**: the context passed to middleware is deeply readonly at the type level; `next()` takes no arguments (pure Koa style), so state only changes via `derive()` or startup `context`, or through a value branded with the `RhythmMutable` symbol (how `RhythmRouter`/`RhythmCli`'s response objects stay mutable).
+Rhythm separates **when** something happens:
+
+- **Startup time: `register()`.** Runs a callback once, immediately, against the app's shared startup context. Use it to create what lives for the whole process (a DB connection, config) and, optionally, how to close it. `stop()` runs the cleanups in reverse order.
+- **Request time: `use()`.** Adds an onion middleware step that runs on every call of the handler, before _and_ after `next()`.
+
+Four small composable functions plug into those two methods, each for one purpose:
+
+| Function                 | Goes in    | Purpose                                                                 |
+| ------------------------ | ---------- | ----------------------------------------------------------------------- |
+| `decorate(fn)`           | `register` | Add typed fields to the startup context.                                |
+| `derive(fn)`             | `use`      | Add typed fields to the request context, then continue.                 |
+| `mount(plugin, cond?)`   | `use`      | Run another pipeline (a `Rhythm`, router, CLI) for each request.        |
+| `include(module, pick?)` | `register` | Run a `Rhythm` module once at startup and pull selected fields from it. |
+
+The context is a plain object, and it is **strictly typed**: `Rhythm<S, I, D>` tracks the startup fields added by `register` (`S`), the input the caller must supply per call (`I`), and the request fields added by `derive` (`D`). Types grow as you chain and nothing is declared twice. Reading a field that was never added is a compile error, a field added by `derive` is not visible to `register`, and a field is only visible to the steps after the one that added it.
+
+```ts
+new Rhythm()
+  .use((ctx) => ctx.user) // error: not added yet
+  .use(derive(() => ({ user: { name: "ada" } })))
+  .use((ctx) => ctx.user.name) // string
+  .use((ctx) => ctx.nope); // error: never added
+```
+
+To add a field, use `decorate` or `derive`; plain assignment to an unknown field is rejected on purpose.
 
 ## Example
 
 ```ts
-import { Rhythm } from "@rhythmjs/rhythm";
+import { Rhythm, decorate, derive } from "@rhythmjs/rhythm";
 
-const app = new Rhythm<{ userId: string }, { logger: { info(msg: string): void } }>()
+const app = new Rhythm({ name: "app" })
+  .register(
+    decorate(() => ({ startedAt: Date.now() })), // startup: runs now
+    (ctx) => console.log(`stopped after ${Date.now() - ctx.startedAt}ms`), // cleanup: runs on stop()
+  )
+  .use(derive(() => ({ requestId: crypto.randomUUID() }))) // request: runs on every call
   .use(async (ctx, next) => {
-    const startedAt = Date.now();
+    console.log(`[${ctx.requestId}] up for ${Date.now() - ctx.startedAt}ms`);
     await next();
-    ctx.logger.info(`handled in ${Date.now() - startedAt}ms`);
-  })
-  .use((ctx) => {
-    ctx.logger.info(`hello, ${ctx.userId}`);
   });
 
-app.context.logger = { info: (msg) => console.log(`[greeter] ${msg}`) };
-
-await app.run({ userId: "u1" });
+const handle = app.callback();
+await handle(); // one request
+await app.stop(); // shut down
 ```
 
-On each `run()`, the middleware chain executes in registration order, onion-style.
+## Startup: `register()`
 
-### Startup values
-
-```ts
-const app = new Rhythm<{ userId: string }, { db: Db }>() // second parameter: the startup shape
-  .register(usersModule); // usersModule: Rhythm<{ userId: string; db: Db }> sees db
-
-app.context.db = await createDb(); // startup time: yours to create and close
-app.context.db = 1; // type error: not a Db
-app.context.cache = x; // type error: not in the declared shape
-```
-
-TypeScript can't infer a type from a later property assignment, so the shape is declared once on the instance. `ctx.db` is then typed in every middleware, and `register()` rejects, at compile time, a module that requires context the parent's input and startup shape don't provide.
-
-A registered module inherits its parent's context and can add its own through its own `module.context`. Those values are visible inside the module and to modules it registers, never to its parent. Per-request input wins over a startup value with the same key. Values are read when a request runs, so assign before serving; nothing checks that every declared key was assigned.
-
-### Extending the context
-
-`next()` accepts no parameters: middleware cannot pass values downstream through it. To add fields to the context, use `derive()`, which runs your function, merges the returned fields into the context, then calls `next()` for you. The new fields are inferred and visible to everything chained after it.
+`register(callback, cleanup?)` calls `callback(ctx, app)` right away with the shared startup context. Return a promise and the first request waits for it. `cleanup(ctx, app)` is optional and runs on `stop()`; if several cleanups throw, `stop()` still runs all of them and rejects with an `AggregateError`. `Rhythm` is also `AsyncDisposable`, so `await using app = ...` stops it for you.
 
 ```ts
-import { Rhythm, derive } from "@rhythmjs/rhythm";
-
-const app = new Rhythm<{ userId: string }>()
-  .use(derive((ctx) => ({ user: { id: ctx.userId, name: "Ada" } })))
-  .use((ctx) => console.log(ctx.user.name));
-```
-
-Keys prefixed with `#` are dropped from the context. For long-lived resources, create them at startup and assign them to `app.context`.
-
-### Module registration
-
-```ts
-import { Rhythm, derive } from "@rhythmjs/rhythm";
-
-const authModule = new Rhythm<{ userId: string }, { db: Db }>({ name: "auth" }).use(
-  derive((ctx) => ({ user: ctx.db.findUser(ctx.userId) })),
+const app = new Rhythm().register(
+  decorate(async () => ({ db: await connect() })),
+  (ctx) => ctx.db.close(),
 );
-authModule.context.db = connectToUserDb();
-
-const app = new Rhythm<{ userId: string }>()
-  .register(authModule, (result) => ({ user: result.user })) // only `user` crosses back
-  .use((ctx) => console.log(`hello, ${ctx.user.name}`));
 ```
 
-The child runs in place: if it ends the chain without calling `next()`, the parent stops there.
+`decorate(fn)` is the typed way to add fields at startup: the returned object is merged into the startup context and `ctx.db` is typed for everything after it. A plain callback works too when you only need a side effect.
+
+## Request: `use()` and `derive()`
+
+`use(middleware)` takes `(ctx, next) => unknown`. `next()` takes no arguments; to add fields to the context use `derive()`, which runs your function (sync or async), merges the result, and calls `next()` for you. Every call of the handler gets a fresh copy of the startup context, so request-time changes never leak between requests.
+
+```ts
+const app = new Rhythm().use(derive((ctx) => ({ user: lookup(ctx.userId) }))).use((ctx) => console.log(ctx.user.name));
+```
+
+### Typed input
+
+The second type parameter is input the caller must pass to the handler on each call. It is checked at compile time: `callback()` returns a function that requires `I` when it has required fields and makes it optional otherwise.
+
+```ts
+const app = new Rhythm<{}, { userId: string }>().use((ctx) => console.log(ctx.userId));
+
+await app.callback()({ userId: "u1" });
+await app.callback()(); // type error: userId is required
+```
+
+## Composing pipelines
+
+### `mount(plugin, condition?)`: request time
+
+Runs another pipeline against the current request, then continues with `next()`. The optional `condition(ctx)` decides per request whether it runs.
+
+```ts
+app.use(mount(routes)); // a RhythmRouter, a RhythmCli, or another Rhythm
+app.use(mount(metrics, () => Bun.env.METRICS !== "off"));
+```
+
+A mounted `Rhythm` module gets a copy of the context, so what it derives stays sealed inside it; routers and CLIs work on the request context itself (params, response). `mount` checks, at compile time, that the parent's context can supply the plugin's required input (`RhythmRouter<I>` and `RhythmCli<I>` declare theirs the same way). A mounted plugin's own derived fields never leak into the parent's type.
+
+### `include(module, pick?)`: startup time
+
+Runs a `Rhythm` module's pipeline once, at registration, with the parent's startup context as input, and registers the module's `stop()` as a cleanup of the parent. `pick(child)` copies chosen fields from the module's finished context into the parent's startup context (typed); without it nothing crosses back.
+
+```ts
+const database = new Rhythm({ name: "database", type: "service" }).register(
+  decorate(async () => ({ db: await connect() })),
+  (ctx) => ctx.db.close(),
+);
+
+const app = new Rhythm().register(include(database, (child) => ({ db: child.db })));
+```
+
+## Errors, names and sources
+
+- **Named failures.** `new Rhythm({ name, type })` (also accepted by `RhythmRouter` and `RhythmCli`) labels the plugin. A failure inside a mounted or included plugin is rethrown as `mounted service "billing" failed` / `included module "db" failed` with the original error as `cause`. Errors raised downstream of the mount are not attributed to the plugin. Without options the label is `module "anonymous"`.
+- **Sources.** `mount()` and `include()` tag themselves with the plugin they wrap. `pipeline.sources` lists the leaf plugins (routers, CLIs, anything tagged with `withSource(fn, source)`) below it, with `Rhythm` modules expanded in place, and `pipeline.parent` is the pipeline a plugin was adopted by. Tooling such as OpenAPI generation or help output uses this to find what an app is made of.
 
 ## API
 
-- `new Rhythm<TInput, TStartup>(options?)`: creates a pipeline; `options.name`/`options.type` label errors from `register()`.
-- `.use(fn: (ctx, next) => Promise<void> | void, condition?: Condition)`: add an onion middleware step. With a second callback, the step runs only when `condition(ctx)` returns true and otherwise falls through to `next()`; a conditional `derive()` does not extend the context type. `next()` takes no arguments; to extend the context pass a `derive()` middleware.
-- `derive(fn: (ctx) => TExtra | Promise<TExtra>)`: middleware that merges `fn`'s result into the context and continues; the typed way to add fields.
-- `.context`: the startup values object, typed by `Rhythm<TInput, TStartup>`. Assign to it before serving; every request context carries it. Inherited by registered modules, never by the parent.
-- `.register(other: Rhythm, exportValue?)`: mount a child `Rhythm` module; sealed by default, opt in via `exportValue`. Controllers (`RhythmRouter`, `RhythmCli`) are not modules; they mount via `.use()` instead.
-- `.run(input)`: dispatches `input` through the middleware chain.
-- `.callback()`: returns the cached, reusable `(input) => Promise<TContext>` handler `run()` uses internally.
-- `.middleware()`: returns this instance as a plain middleware, for flat mounting into a parent via `.use()` instead of `.register()`.
-- `.parent` / `.sources`: the module this one was registered into, and the tagged sources (routers, clis, any extension) below it in order, with registered modules expanded in place. Read lazily, once the app is assembled. Tag your own middleware with `withSource(fn, source)` from `@rhythmjs/rhythm/source`.
-- `compose(middleware[])`: the standalone Koa-style onion dispatcher `Rhythm` is built on.
+- `new Rhythm<S, I, D>(options?)`: startup, input and derived context types (all inferred as you chain, only `I` is usually written by hand); `options.name` / `options.type` label failures.
+- `.register(callback, cleanup?)`: startup step; returns the app with its type extended when given `decorate()`/`include()`.
+- `.use(middleware)`: request step; `derive()` extends the type.
+- `.callback()`: returns the reusable `(input?) => Promise<ctx>` handler (input required when `I` has required fields). Built from the middleware registered so far.
+- `.stop()` / `[Symbol.asyncDispose]()`: run the cleanups in reverse order.
+- `.sources` / `.parent` / `.options`: introspection, available on every `Pipeline`.
+- `decorate(fn)`, `derive(fn)`, `mount(plugin, condition?)`, `include(module, pick?)`: the composables above.
+- `Pipeline<C>`: abstract base shared by `Rhythm`, `RhythmRouter` and `RhythmCli`: `use()`, `sources`, `parent`, `options`, and a protected `chain()`. Extend it to build your own controller.
+- `compose(middleware[])`: the standalone Koa-style onion dispatcher everything is built on.
+- `withSource(fn, source)` / `sourceOf(fn)`: tag and read a middleware's source.
+
+Each function also has its own entry point (`@rhythmjs/rhythm/derive`, `/decorate`, `/mount`, `/include`, `/compose`, `/pipeline`, `/source`, `/types`); the root export re-exports them all.

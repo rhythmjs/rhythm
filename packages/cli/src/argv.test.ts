@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { parseArgv } from "./argv";
+import { RhythmCli } from "./rhythm-cli";
+import { parseArgv, withParsedArgv } from "./argv";
+import { toCliHandler } from "./run";
 
 describe("parseArgv()", () => {
   test("separates positionals from flags", () => {
@@ -50,4 +52,18 @@ describe("parseArgv()", () => {
     expect(positionals).toEqual(["deploy"]);
     expect(flags).toEqual({ force: "now" });
   });
+});
+
+function capture() {
+  const out: string[] = [];
+  return { out, io: { stdout: { write: (t: string) => out.push(t) }, stderr: { write: () => {} } } };
+}
+
+test("withParsedArgv() adds flags and positionals to the context", async () => {
+  const { out, io } = capture();
+  const cli = new RhythmCli()
+    .use(withParsedArgv())
+    .cmd("greet :name", (ctx) => ctx.log(ctx.params.name, ctx.flags.loud, ctx.positionals));
+  expect(await toCliHandler(cli, io)(["greet", "ada", "--loud"])).toBe(0);
+  expect(out.join("")).toBe("ada true [ 'greet', 'ada' ]\n");
 });

@@ -1,7 +1,7 @@
 {
   "name": "@rhythmjs/cli",
   "version": "0.0.16",
-  "description": "Command-line argument parsing, prompts, and command routing for the Rhythm middleware kernel, running on Bun.",
+  "description": "Command-line routing for Rhythm: RhythmCli commands, argv parsing, prompts and a Bun runner.",
   "homepage": "https://rhythm.js.org/cli",
   "license": "ISC",
   "repository": {
@@ -35,27 +35,20 @@
       "types": "./dist/run.d.ts",
       "default": "./dist/run.js"
     },
-    "./adapters/context": {
-      "types": "./dist/context.d.ts",
-      "default": "./dist/context.js"
-    },
-    "./adapters/bun": {
-      "types": "./dist/run.d.ts",
-      "default": "./dist/run.js"
-    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "bun build src/rhythm-cli.ts src/argv.ts src/prompt.ts src/context.ts src/run.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && bun build src/rhythm-cli.ts src/argv.ts src/prompt.ts src/context.ts src/run.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
     "prepublishOnly": "bun run typecheck && bun test && bun run build",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {
-    "@rhythmjs/rhythm": "workspace:*"
+    "@rhythmjs/rhythm": "workspace:*",
+    "rou3": "^1.0.0"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",

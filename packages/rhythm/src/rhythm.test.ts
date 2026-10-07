@@ -1,630 +1,806 @@
-import { withSource } from "./source";
-import { describe, expect, test } from "bun:test";
-import { derive, Rhythm } from "./rhythm";
-import type { Middleware } from "./types";
+import { test, expect } from "bun:test";
+import { Rhythm } from "./rhythm";
+import type { ExtensionMiddleware } from "./types";
+import { derive } from "./derive";
+import { decorate } from "./decorate";
+import { mount } from "./mount";
+import { include } from "./include";
+import { compose } from "./compose";
+import type { Next } from "./types";
 
-describe("onion middleware", () => {
-  test("runs before/after next() in onion order", async () => {
-    const order: string[] = [];
-    const app = new Rhythm<{}>()
-      .use(async (ctx, next) => {
-        order.push("a:before");
-        await next();
-        order.push("a:after");
-      })
-      .use(async (ctx, next) => {
-        order.push("b:before");
-        await next();
-        order.push("b:after");
-      })
-      .use(() => {
-        order.push("c");
-      });
+type Dyn = Record<string, any>;
 
-    await app.run({});
-    expect(order).toEqual(["a:before", "b:before", "c", "b:after", "a:after"]);
+test("middleware does not run until the handler is called", () => {
+  const app = new Rhythm();
+  let ran = false;
+
+  app.use(() => {
+    ran = true;
   });
 
-  test("next() is pure koa style: context extension happens through derive(), not next(extra)", async () => {
-    const app = new Rhythm<{}>().use(derive(() => ({ user: "Alice" }))).use((ctx) => {
-      expect(ctx.user).toBe("Alice");
-    });
+  app.callback();
 
-    const result = await app.run({});
-    expect(result.user).toBe("Alice");
-  });
-
-  test("calling next() twice rejects", async () => {
-    const app = new Rhythm<{}>().use(async (ctx, next) => {
-      await next();
-      await next();
-    });
-
-    await expect(app.run({})).rejects.toThrow("next() called multiple times");
-  });
-
-  test("use() rejects a non-function immediately, at the call site, not lazily on run()", () => {
-    const app = new Rhythm<{}>();
-    expect(() => app.use(undefined as any)).toThrow("middleware must be a function!");
-  });
+  expect(ran).toBe(false);
 });
 
-describe("register()", () => {
-  test("a module's own context extension stays isolated by default", async () => {
-    const child = new Rhythm<{}>().use(derive(() => ({ secret: "hidden" })));
+test("middleware runs on every handler call", async () => {
+  const app = new Rhythm();
+  let count = 0;
 
-    let seen: unknown;
-    const app = new Rhythm<{}>().register(child).use((ctx) => {
-      seen = (ctx as Record<string, unknown>).secret;
-    });
-
-    await app.run({});
-    expect(seen).toBeUndefined();
+  app.use(() => {
+    count++;
   });
 
-  test("register(module, exportValue) opts in to promoting specific fields", async () => {
-    const child = new Rhythm<{}>().use(derive(() => ({ secret: "hidden" })));
+  const handler = app.callback();
+  await handler();
+  await handler();
+  await handler();
 
-    const app = new Rhythm<{}>()
-      .register(child, (result) => ({ secret: result.secret }))
-      .use((ctx) => {
-        expect(ctx.secret).toBe("hidden");
-      });
-
-    const result = await app.run({});
-    expect(result.secret).toBe("hidden");
-  });
-
-  test("a module throwing is tagged with its name and preserves the original error as cause", async () => {
-    const child = new Rhythm<{}>({ name: "payments" }).use(() => {
-      throw new Error("card declined");
-    });
-    const app = new Rhythm<{}>().register(child);
-
-    try {
-      await app.run({});
-      throw new Error("expected app.run to reject");
-    } catch (err) {
-      expect((err as Error).message).toBe('registered module "payments" failed');
-      expect(((err as Error).cause as Error).message).toBe("card declined");
-    }
-  });
-
-  test('options.type overrides the default "module" label used in the register() error', async () => {
-    const child = new Rhythm<{}>({ name: "users", type: "controller" }).use(() => {
-      throw new Error("boom");
-    });
-    const app = new Rhythm<{}>().register(child);
-
-    await expect(app.run({})).rejects.toThrow('registered controller "users" failed');
-  });
-
-  test("a module can catch its own downstream errors before they reach register()", async () => {
-    const events: string[] = [];
-    const child = new Rhythm<{}>({ name: "safe" })
-      .use(async (ctx, next) => {
-        try {
-          await next();
-        } catch (err) {
-          events.push(`caught: ${(err as Error).message}`);
-        }
-      })
-      .use(() => {
-        throw new Error("boom");
-      });
-
-    const app = new Rhythm<{}>().register(child).use(() => {
-      events.push("app continued");
-    });
-
-    await app.run({});
-    expect(events).toEqual(["caught: boom"]);
-  });
-
-  test("a module that ends the chain without calling next() stops the parent; calling through continues it", async () => {
-    const events: string[] = [];
-    const ends = new Rhythm<{}>().use(() => {
-      events.push("ends");
-    });
-    const passes = new Rhythm<{}>().use(async (_ctx, next) => {
-      events.push("passes");
-      await next();
-    });
-
-    await new Rhythm<{}>()
-      .register(ends)
-      .use(() => void events.push("after ends"))
-      .run({});
-    await new Rhythm<{}>()
-      .register(passes)
-      .use(() => void events.push("after passes"))
-      .run({});
-    expect(events).toEqual(["ends", "passes", "after passes"]);
-  });
-
-  test("errors from the parent's downstream are not wrapped as module failures", async () => {
-    const child = new Rhythm<{}>({ name: "ok" }).use(async (_ctx, next) => {
-      await next();
-    });
-    const app = new Rhythm<{}>().register(child).use(() => {
-      throw new Error("downstream");
-    });
-    await expect(app.run({})).rejects.toThrow(/^downstream$/);
-  });
-
-  test.skip("type system: a non-exported field is not visible on the parent's context", () => {
-    const child = new Rhythm<{}>().use(derive(() => ({ secret: "hidden" })));
-    new Rhythm<{}>().register(child).use((ctx) => {
-      // @ts-expect-error
-      return ctx.secret;
-    });
-  });
-
-  test.skip("type system: a module needing fields the parent doesn't have cannot be registered", () => {
-    const needsToken = new Rhythm<{ token: string }>().use((ctx) => {
-      ctx.token;
-    });
-    // @ts-expect-error
-    new Rhythm<{}>().register(needsToken);
-  });
+  expect(count).toBe(3);
 });
 
-describe("ctx is mutable, koa-style", () => {
-  test("middleware mutates declared context fields directly, fully typed", async () => {
-    const app = new Rhythm<{ user: { name: string } }>().use(async (ctx, next) => {
-      ctx.user.name = "mutated";
+test("middleware runs onion style around next()", async () => {
+  const app = new Rhythm();
+  const calls: string[] = [];
+
+  app.use(async (_ctx, next) => {
+    calls.push("1 in");
+    await next();
+    calls.push("1 out");
+  });
+  app.use(async (_ctx, next) => {
+    calls.push("2 in");
+    await next();
+    calls.push("2 out");
+  });
+  app.use(() => {
+    calls.push("3");
+  });
+
+  await app.callback()();
+
+  expect(calls).toEqual(["1 in", "2 in", "3", "2 out", "1 out"]);
+});
+
+test("not calling next() stops the chain", async () => {
+  const app = new Rhythm();
+  const calls: string[] = [];
+
+  app.use(() => {
+    calls.push("first");
+  });
+  app.use(() => {
+    calls.push("second");
+  });
+
+  await app.callback()();
+
+  expect(calls).toEqual(["first"]);
+});
+
+test("calling next() multiple times rejects", async () => {
+  const app = new Rhythm();
+
+  app.use(async (_ctx, next) => {
+    await next();
+    await next();
+  });
+
+  expect(app.callback()()).rejects.toThrow("next() called multiple times");
+});
+
+test("use is chainable", async () => {
+  const app = new Rhythm();
+  const calls: string[] = [];
+
+  app
+    .use(async (_ctx, next) => {
+      calls.push("first");
       await next();
-    });
+    })
+    .use(() => calls.push("second"));
 
-    const result = await app.run({ user: { name: "original" } });
-    expect(result.user.name).toBe("mutated");
-  });
+  await app.callback()();
+
+  expect(calls).toEqual(["first", "second"]);
 });
 
-describe("derive()", () => {
-  test("an async factory's return extends the context for downstream middleware", async () => {
-    const app = new Rhythm<{ token: string }>()
-      .use(derive(async (ctx) => ({ user: `user-of-${ctx.token}` })))
-      .use((ctx) => {
-        expect(ctx.user).toBe("user-of-t1");
-      });
+test("startup context is readable in middleware", async () => {
+  const app = new Rhythm().register(decorate(() => ({ db: "connected" })));
+  let seen: unknown;
 
-    const result = await app.run({ token: "t1" });
-    expect(result.user).toBe("user-of-t1");
+  app.use((ctx) => {
+    seen = ctx.db;
   });
 
-  test("derive() is positional: middleware registered before it doesn't see the value on the way down", async () => {
-    const seen: unknown[] = [];
-    const app = new Rhythm<{}>()
-      .use(async (ctx, next) => {
-        seen.push((ctx as Record<string, unknown>).user);
-        await next();
-      })
-      .use(derive(() => ({ user: "Alice" })))
-      .use((ctx) => {
-        seen.push(ctx.user);
-      });
+  await app.callback()();
 
-    await app.run({});
-    expect(seen).toEqual([undefined, "Alice"]);
-  });
-
-  test("keys prefixed with # are stripped from the context", async () => {
-    const app = new Rhythm<{}>().use(derive(() => ({ user: "Alice", "#raw": "internal" }))).use((ctx) => {
-      expect((ctx as any)["#raw"]).toBeUndefined();
-      expect(ctx.user).toBe("Alice");
-    });
-
-    const result = await app.run({});
-    expect((result as any)["#raw"]).toBeUndefined();
-  });
-
-  test("a throwing derive short-circuits downstream and is catchable by an earlier use()", async () => {
-    const events: string[] = [];
-    const app = new Rhythm<{}>()
-      .use(async (ctx, next) => {
-        try {
-          await next();
-        } catch (err) {
-          events.push(`caught: ${(err as Error).message}`);
-        }
-      })
-      .use(
-        derive(() => {
-          throw new Error("invalid token");
-        }),
-      )
-      .use(() => {
-        events.push("unreached");
-      });
-
-    await app.run({});
-    expect(events).toEqual(["caught: invalid token"]);
-  });
-
-  test("derive() rejects a non-function immediately, before use()", () => {
-    expect(() => derive(undefined as any)).toThrow("derive factory must be a function!");
-  });
+  expect(seen).toBe("connected");
 });
 
-describe("context", () => {
-  interface Db {
-    name: string;
+test("downstream middleware sees the latest ctx value, upstream sees changes on the way out", async () => {
+  const app = new Rhythm().register(decorate(() => ({ value: "initial" })));
+  const seen: unknown[] = [];
+
+  app.use(async (ctx, next) => {
+    seen.push(ctx.value);
+    ctx.value = "updated";
+    await next();
+    seen.push(ctx.value);
+  });
+  app.use((ctx) => {
+    seen.push(ctx.value);
+    ctx.value = "final";
+  });
+
+  await app.callback()();
+
+  expect(seen).toEqual(["initial", "updated", "final"]);
+});
+
+test("each handler call gets a fresh ctx seeded from the startup context", async () => {
+  const initial = { count: 0 };
+  const app = new Rhythm().register(decorate(() => ({ ...initial })));
+  const seen: number[] = [];
+
+  app.use((ctx) => {
+    ctx.count += 1;
+    seen.push(ctx.count);
+  });
+
+  const handler = app.callback();
+  await handler();
+  await handler();
+
+  expect(seen).toEqual([1, 1]);
+  expect(initial.count).toBe(0);
+});
+
+test("handler can extend ctx per invocation without leaking to the next", async () => {
+  const app = new Rhythm<Dyn>();
+  const seen: unknown[] = [];
+
+  app.use((ctx) => {
+    seen.push(ctx.runId);
+  });
+
+  const handler = app.callback();
+  await handler({ runId: "a" });
+  await handler({ runId: "b" });
+  await handler();
+
+  expect(seen).toEqual(["a", "b", undefined]);
+});
+
+test("handler resolves with the final ctx", async () => {
+  const app = new Rhythm<Dyn>().register(decorate(() => ({ base: 1 })));
+
+  app.use(async (ctx, next) => {
+    await next();
+    ctx.result = ctx.base + ctx.bonus;
+  });
+
+  const ctx = await app.callback()({ bonus: 10 });
+
+  expect(ctx.result).toBe(11);
+});
+
+test("callback snapshots the chain; later use() is not included", async () => {
+  const app = new Rhythm();
+  const calls: string[] = [];
+
+  app.use(async (_ctx, next) => {
+    calls.push("first");
+    await next();
+  });
+
+  const handler = app.callback();
+
+  app.use(() => {
+    calls.push("second");
+  });
+
+  await handler();
+  await app.callback()();
+
+  expect(calls).toEqual(["first", "first", "second"]);
+});
+
+test("concurrent handler calls do not share ctx", async () => {
+  const app = new Rhythm<Dyn>();
+  const seen: unknown[] = [];
+
+  app.use(async (ctx, next) => {
+    await Bun.sleep(ctx.delay);
+    seen.push(ctx.name);
+    await next();
+  });
+
+  const handler = app.callback();
+  await Promise.all([handler({ name: "slow", delay: 20 }), handler({ name: "fast", delay: 0 })]);
+
+  expect(seen).toEqual(["fast", "slow"]);
+});
+
+test("ctx allows properties not in the startup context", async () => {
+  const app = new Rhythm<Dyn>().register(decorate(() => ({ a: 1 })));
+  let seen: unknown;
+
+  app.use(async (ctx, next) => {
+    ctx.extra = "later";
+    await next();
+  });
+  app.use((ctx) => {
+    seen = ctx.extra;
+  });
+
+  await app.callback()();
+
+  expect(seen).toBe("later");
+});
+
+test("derive adds values to ctx for downstream middleware", async () => {
+  let seen: number | undefined;
+
+  const app = new Rhythm().use(derive(() => ({ someValue: 10 }))).use((ctx) => {
+    const typed: number = ctx.someValue;
+    seen = typed;
+  });
+
+  await app.callback()();
+
+  expect(seen).toBe(10);
+});
+
+test("derive factory can be async and read existing ctx", async () => {
+  let seen: unknown;
+
+  const app = new Rhythm()
+    .register(decorate(() => ({ base: 5 })))
+    .use(derive(async (ctx) => ({ doubled: ctx.base * 2 })))
+    .use((ctx) => {
+      seen = ctx.doubled;
+    });
+
+  await app.callback()();
+
+  expect(seen).toBe(10);
+});
+
+test("derive runs fresh on every handler call", async () => {
+  const seen: number[] = [];
+  let source = 0;
+
+  const app = new Rhythm().use(derive(() => ({ value: ++source }))).use((ctx) => {
+    seen.push(ctx.value);
+  });
+
+  const handler = app.callback();
+  await handler();
+  await handler();
+
+  expect(seen).toEqual([1, 2]);
+});
+
+test("any helper following the Extension convention widens ctx", async () => {
+  function timed<T extends object>(): ExtensionMiddleware<T, { startedAt: number }> {
+    const middleware = async (ctx: Record<string, any>, next: Next) => {
+      ctx.startedAt = Date.now();
+      await next();
+    };
+    return middleware as ExtensionMiddleware<T, { startedAt: number }>;
   }
 
-  test("startup values assigned before serving reach every run", async () => {
-    const db: Db = { name: "db" };
-    const app = new Rhythm<{}, { db: Db }>().use((ctx) => {
-      expect(ctx.db).toBe(db);
-    });
-    app.context.db = db;
+  let seen: number | undefined;
 
-    await app.run({});
-    await app.run({});
+  const app = new Rhythm().use(timed()).use((ctx) => {
+    const typed: number = ctx.startedAt;
+    seen = typed;
   });
 
-  test("assignments and reads are typed from the declared shape", async () => {
-    const app = new Rhythm<{}, { db: Db; port: number }>().use((ctx) => {
-      const name: string = ctx.db.name;
-      const port: number = ctx.port;
-      expect([name, port]).toEqual(["db", 3000]);
-    });
-    app.context.db = { name: "db" };
-    app.context.port = 3000;
-    // @ts-expect-error
-    app.context.port = "3000";
-    // @ts-expect-error
-    app.context.nope = 1;
-    app.context.port = 3000;
+  await app.callback()();
 
-    await app.run({});
-  });
-
-  test("a registered module inherits the parent's context", async () => {
-    let seen: unknown;
-    const child = new Rhythm<{ db: string }>({ name: "child" }).use((ctx) => {
-      seen = ctx.db;
-    });
-    const app = new Rhythm<{}, { db: string }>().register(child);
-    app.context.db = "parent-db";
-
-    await app.run({});
-    expect(seen).toBe("parent-db");
-  });
-
-  test("a module's own context is visible to it but not to its parent", async () => {
-    const seen: Record<string, unknown> = {};
-    const child = new Rhythm<{}, { cache: string }>({ name: "child" }).use(async (ctx, next) => {
-      seen.child = ctx.cache;
-      await next();
-    });
-    child.context.cache = "child-cache";
-    const app = new Rhythm<{}>().register(child).use((ctx) => {
-      seen.parent = "reached";
-      seen.leaked = "cache" in ctx;
-    });
-
-    await app.run({});
-    expect(seen).toEqual({ child: "child-cache", parent: "reached", leaked: false });
-  });
-
-  test("a module's context shadows the parent's for that module only", async () => {
-    const seen: Record<string, unknown> = {};
-    const child = new Rhythm<{}, { db: string }>({ name: "child" }).use(async (ctx, next) => {
-      seen.child = ctx.db;
-      await next();
-    });
-    child.context.db = "child-db";
-    const app = new Rhythm<{}, { db: string }>().register(child).use((ctx) => {
-      seen.parent = ctx.db;
-    });
-    app.context.db = "parent-db";
-
-    await app.run({});
-    expect(seen).toEqual({ child: "child-db", parent: "parent-db" });
-  });
-
-  test("values assigned after the app is built are picked up on the next run", async () => {
-    const seen: unknown[] = [];
-    const app = new Rhythm<{}, { count: number }>().use((ctx) => {
-      seen.push(ctx.count);
-    });
-    app.context.count = 1;
-    await app.run({});
-    app.context.count = 2;
-    await app.run({});
-    expect(seen).toEqual([1, 2]);
-  });
-
-  test("per-request input wins over a startup value with the same key", async () => {
-    let seen: unknown;
-    const app = new Rhythm<{ tag?: string }, { tag?: string }>().use((ctx) => {
-      seen = ctx.tag;
-    });
-    app.context.tag = "startup";
-    await app.run({ tag: "request" });
-    expect(seen).toBe("request");
-  });
-
-  test("register() rejects, at compile time, a module whose required context the parent doesn't have", () => {
-    const child = new Rhythm<{ db: string }>({ name: "child" });
-    // @ts-expect-error
-    new Rhythm<{}>().register(child);
-  });
-
-  test("register() accepts a module whose required context comes from the parent's startup shape", () => {
-    const child = new Rhythm<{ db: string }>({ name: "child" });
-    new Rhythm<{}, { db: string }>().register(child);
-  });
-
-  test("middleware() mounts the module's context onto the shared ctx", async () => {
-    const child = new Rhythm<{}, { greeting: string }>();
-    child.context.greeting = "hi";
-    const ctx: Record<string, unknown> = {};
-    await child.middleware()(ctx as any, (async () => ctx) as any);
-    expect(ctx.greeting).toBe("hi");
-  });
+  expect(seen).toBeNumber();
 });
 
-describe("conditional middleware: use(fn, condition)", () => {
-  test("runs fn only when the predicate is true, otherwise falls through to next()", async () => {
-    const events: string[] = [];
-    const app = new Rhythm<{ path: string }>()
-      .use(
-        async (_ctx, next) => {
-          events.push("guarded");
-          await next();
-        },
-        (ctx) => ctx.path.startsWith("/api"),
-      )
-      .use(() => {
-        events.push("end");
-      });
+test("register runs immediately, once, not per handler call", async () => {
+  const app = new Rhythm();
+  let startups = 0;
+  let requests = 0;
 
-    await app.run({ path: "/api/users" });
-    await app.run({ path: "/other" });
-    expect(events).toEqual(["guarded", "end", "end"]);
+  app.register(() => {
+    startups++;
+  });
+  app.use(() => {
+    requests++;
   });
 
-  test("supports an async predicate", async () => {
-    const events: string[] = [];
-    const app = new Rhythm<{ allow: boolean }>().use(
-      () => {
-        events.push("ran");
-      },
-      async (ctx) => ctx.allow,
-    );
+  expect(startups).toBe(1);
 
-    await app.run({ allow: true });
-    await app.run({ allow: false });
-    expect(events).toEqual(["ran"]);
-  });
+  const handler = app.callback();
+  await handler();
+  await handler();
 
-  test("a skipped middleware does not end the chain; later middleware still run and onion order is kept", async () => {
-    const events: string[] = [];
-    const app = new Rhythm<{}>()
-      .use(async (_ctx, next) => {
-        events.push("outer:before");
-        await next();
-        events.push("outer:after");
-      })
-      .use(
-        () => {
-          events.push("never");
-        },
-        () => false,
-      )
-      .use(() => {
-        events.push("inner");
-      });
+  expect(startups).toBe(1);
+  expect(requests).toBe(2);
+});
 
-    await app.run({});
-    expect(events).toEqual(["outer:before", "inner", "outer:after"]);
-  });
+test("register sees the latest base ctx at call time", () => {
+  const seen: unknown[] = [];
 
-  test("the predicate sees startup context and earlier derive output", async () => {
-    let seen: unknown;
-    const app = new Rhythm<{}, { env: string }>().use(derive((ctx) => ({ label: `${ctx.env}!` }))).use(
-      () => {
-        seen = "ran";
-      },
-      (ctx) => ctx.label === "test!",
-    );
-    app.context.env = "test";
-
-    await app.run({});
-    expect(seen).toBe("ran");
-  });
-
-  test("a conditional derive does not widen the context type (its fields may be absent)", async () => {
-    const app = new Rhythm<{ flag: boolean }>().use(
-      derive(() => ({ extra: 1 })),
-      (ctx) => ctx.flag,
-    );
-    app.use((ctx) => {
-      // @ts-expect-error
-      ctx.extra;
+  new Rhythm<Dyn>()
+    .register(decorate(() => ({ a: 1 })))
+    .register((ctx) => {
+      seen.push(ctx.b);
+      ctx.b = 2;
+    })
+    .register((ctx) => {
+      seen.push(ctx.a + ctx.b);
     });
 
-    await app.run({ flag: false });
+  expect(seen).toEqual([undefined, 3]);
+});
+
+test("register mutates the base ctx, visible in every request ctx", async () => {
+  const app = new Rhythm<Dyn>()
+    .register(decorate(() => ({ env: "test" })))
+    .register((ctx) => {
+      ctx.db = "connected";
+    })
+    .use(async (ctx, next) => {
+      ctx.seen = `${ctx.db}:${ctx.env}`;
+      await next();
+    });
+
+  const handler = app.callback();
+  const first = await handler();
+  const second = await handler();
+
+  expect(first.seen).toBe("connected:test");
+  expect(second.seen).toBe("connected:test");
+});
+
+test("decorate adds typed values to base ctx at register time", async () => {
+  const app = new Rhythm<Dyn>()
+    .register(decorate(() => ({ env: "test" })))
+    .register(decorate((ctx) => ({ db: `pool:${ctx.env}` })))
+    .use(async (ctx, next) => {
+      const typed: string = ctx.db;
+      ctx.seen = typed;
+      await next();
+    });
+
+  const first = await app.callback()();
+  const second = await app.callback()();
+
+  expect(first.seen).toBe("pool:test");
+  expect(second.seen).toBe("pool:test");
+});
+
+test("decorate runs once at register time, not per handler call", async () => {
+  let calls = 0;
+
+  const app = new Rhythm().register(
+    decorate(() => {
+      calls++;
+      return { value: calls };
+    }),
+  );
+
+  const handler = app.callback();
+  await handler();
+  await handler();
+
+  expect(calls).toBe(1);
+});
+
+test("register sees base ctx only, never request extras or request mutations", async () => {
+  const seen: unknown[] = [];
+  const initial: Record<string, any> = {};
+  const app = new Rhythm().register(decorate(() => ({ ...initial })));
+
+  app.register((ctx) => {
+    seen.push(ctx.runId);
+  });
+  app.use(async (ctx, next) => {
+    ctx.leak = true;
+    await next();
   });
 
-  test("a throwing predicate rejects the run", async () => {
-    const app = new Rhythm<{}>().use(
+  const handler = app.callback();
+  await handler({ runId: "a" });
+
+  expect(seen).toEqual([undefined]);
+  expect(initial.leak).toBeUndefined();
+  expect(initial.runId).toBeUndefined();
+});
+
+test("register receives the app instance as the second argument", async () => {
+  const calls: string[] = [];
+
+  const app = new Rhythm();
+  app.register((_ctx, self) => {
+    expect(self).toBe(app);
+    self.use(() => {
+      calls.push("added from register");
+    });
+  });
+
+  await app.callback()();
+
+  expect(calls).toEqual(["added from register"]);
+});
+
+test("mount runs the child per request with the parent's ctx visible", async () => {
+  const seen: unknown[] = [];
+  const child = new Rhythm<Dyn>().register(decorate(() => ({ name: "child", own: "kept" }))).use(async (ctx, next) => {
+    seen.push(`${ctx.name}:${ctx.own}:${ctx.input}`);
+    await next();
+  });
+
+  const app = new Rhythm<Dyn>().register(decorate(() => ({ name: "parent" }))).use(mount(child));
+  const handler = app.callback();
+
+  await handler({ input: "a" });
+  await handler({ input: "b" });
+
+  expect(seen).toEqual(["parent:kept:a", "parent:kept:b"]);
+});
+
+test("mount does not update the parent ctx", async () => {
+  const child = new Rhythm<Dyn>()
+    .register(decorate(() => ({ base: 1 })))
+    .use(derive(() => ({ derived: 2 })))
+    .use(async (ctx, next) => {
+      ctx.mutated = true;
+      await next();
+    });
+
+  const app = new Rhythm<Dyn>().use(mount(child));
+
+  const result = await app.callback()();
+
+  expect(result.base).toBeUndefined();
+  expect(result.derived).toBeUndefined();
+  expect(result.mutated).toBeUndefined();
+});
+
+test("mount runs at its position and then continues the parent chain", async () => {
+  const calls: string[] = [];
+  const child = new Rhythm().use(async (_ctx, next) => {
+    calls.push("child in");
+    await next();
+    calls.push("child out");
+  });
+
+  const app = new Rhythm()
+    .use(async (_ctx, next) => {
+      calls.push("app in");
+      await next();
+      calls.push("app out");
+    })
+    .use(mount(child))
+    .use(() => {
+      calls.push("app last");
+    });
+
+  await app.callback()();
+
+  expect(calls).toEqual(["app in", "child in", "child out", "app last", "app out"]);
+});
+
+test("mount condition is checked per request", async () => {
+  const seen: unknown[] = [];
+  const child = new Rhythm<Dyn>().use(async (ctx, next) => {
+    seen.push(ctx.id);
+    await next();
+  });
+
+  const app = new Rhythm<Dyn>().use(mount(child, (ctx) => ctx.id !== 2));
+  const handler = app.callback();
+
+  await handler({ id: 1 });
+  await handler({ id: 2 });
+  await handler({ id: 3 });
+
+  expect(seen).toEqual([1, 3]);
+});
+
+test("mount defaults to running when no condition is given", async () => {
+  let ran = false;
+  const child = new Rhythm().use(async (_ctx, next) => {
+    ran = true;
+    await next();
+  });
+
+  await new Rhythm().use(mount(child)).callback()();
+
+  expect(ran).toBe(true);
+});
+
+test("register cleanup does not run until stop()", async () => {
+  let cleaned = false;
+  const app = new Rhythm().register(
+    () => {},
+    () => {
+      cleaned = true;
+    },
+  );
+
+  await app.callback()();
+  expect(cleaned).toBe(false);
+
+  await app.stop();
+  expect(cleaned).toBe(true);
+});
+
+test("cleanup receives the base ctx with typed decorated values", async () => {
+  const closed: string[] = [];
+  const app = new Rhythm().register(decorate(() => ({ env: "test" }))).register(
+    decorate((ctx) => ({ db: { name: `pool:${ctx.env}` } })),
+    (ctx) => {
+      const typed: string = ctx.db.name;
+      closed.push(typed);
+    },
+  );
+
+  await app.stop();
+
+  expect(closed).toEqual(["pool:test"]);
+});
+
+test("cleanups run in reverse registration order", async () => {
+  const calls: string[] = [];
+  const app = new Rhythm()
+    .register(
+      () => {},
+      () => void calls.push("first"),
+    )
+    .register(
+      () => {},
+      () => void calls.push("second"),
+    )
+    .register(
+      () => {},
+      () => void calls.push("third"),
+    );
+
+  await app.stop();
+
+  expect(calls).toEqual(["third", "second", "first"]);
+});
+
+test("async cleanups are awaited in order", async () => {
+  const calls: string[] = [];
+  const app = new Rhythm()
+    .register(
+      () => {},
+      () => void calls.push("outer"),
+    )
+    .register(
+      () => {},
+      async () => {
+        await Bun.sleep(10);
+        calls.push("inner");
+      },
+    );
+
+  await app.stop();
+
+  expect(calls).toEqual(["inner", "outer"]);
+});
+
+test("cleanup is not recorded when setup throws", async () => {
+  let cleaned = false;
+  const app = new Rhythm();
+
+  expect(() =>
+    app.register(
+      () => {
+        throw new Error("boom");
+      },
+      () => {
+        cleaned = true;
+      },
+    ),
+  ).toThrow("boom");
+
+  await app.stop();
+
+  expect(cleaned).toBe(false);
+});
+
+test("a failing cleanup does not stop the others; stop() rejects with all errors", async () => {
+  const calls: string[] = [];
+  const app = new Rhythm()
+    .register(
+      () => {},
+      () => void calls.push("first"),
+    )
+    .register(
       () => {},
       () => {
-        throw new Error("predicate failed");
+        throw new Error("second failed");
+      },
+    )
+    .register(
+      () => {},
+      () => {
+        throw new Error("third failed");
       },
     );
 
-    await expect(app.run({})).rejects.toThrow("predicate failed");
-  });
+  const error = await app.stop().catch((e) => e);
 
-  test("rejects a non-function predicate immediately", () => {
-    expect(() => new Rhythm<{}>().use(() => {}, "nope" as any)).toThrow("condition must be a function!");
-  });
+  expect(error).toBeInstanceOf(AggregateError);
+  expect(error.errors.map((e: Error) => e.message)).toEqual(["third failed", "second failed"]);
+  expect(calls).toEqual(["first"]);
 });
 
-describe("compose() caching", () => {
-  test("middleware added after earlier run() calls is picked up on the next run", async () => {
-    const events: string[] = [];
-    const app = new Rhythm<{}>().use(async (ctx, next) => {
-      events.push("first");
-      await next();
-    });
+test("stop() is idempotent", async () => {
+  let cleanups = 0;
+  const app = new Rhythm().register(
+    () => {},
+    () => {
+      cleanups++;
+    },
+  );
 
-    await app.run({});
-    await app.run({});
+  await app.stop();
+  await app.stop();
 
-    app.use(() => {
-      events.push("second");
-    });
-    await app.run({});
-
-    expect(events).toEqual(["first", "first", "first", "second"]);
-  });
+  expect(cleanups).toBe(1);
 });
 
-describe("use() is positional across modules and mounts", () => {
-  const mark =
-    (events: string[], name: string): Middleware<any> =>
-    async (_ctx, next) => {
-      events.push(`${name}:in`);
-      await next();
-      events.push(`${name}:out`);
-    };
+test("await using stops the app at scope exit", async () => {
+  let cleaned = false;
 
-  test("use().register().use().use(mount).use(): each use() wraps only what is registered after it", async () => {
-    const events: string[] = [];
-    const mount = new Rhythm<{}>().use(mark(events, "mount")).middleware();
+  {
+    await using app = new Rhythm().register(
+      () => {},
+      () => {
+        cleaned = true;
+      },
+    );
+    expect(cleaned).toBe(false);
+    void app;
+  }
 
-    await new Rhythm<{}>()
-      .use(mark(events, "a"))
-      .register(new Rhythm<{}>().use(mark(events, "module")))
-      .use(mark(events, "b"))
-      .use(mount)
-      .use(mark(events, "c"))
-      .run({});
-
-    expect(events).toEqual([
-      "a:in",
-      "module:in",
-      "b:in",
-      "mount:in",
-      "c:in",
-      "c:out",
-      "mount:out",
-      "b:out",
-      "module:out",
-      "a:out",
-    ]);
-  });
-
-  test("a use() after register() does not run inside the registered module", async () => {
-    const events: string[] = [];
-    const child = new Rhythm<{}>().use(() => {
-      events.push("child");
-    });
-    const app = new Rhythm<{}>().register(child).use(() => {
-      events.push("after");
-    });
-
-    await app.run({});
-    expect(events).toEqual(["child"]);
-  });
-
-  test("a use() before register() does not receive the module's inner middleware effects", async () => {
-    const seen: unknown[] = [];
-    const child = new Rhythm<{}>().use(async (ctx, next) => {
-      (ctx as any).inner = true;
-      await next();
-    });
-    const app = new Rhythm<{}>()
-      .use(async (ctx, next) => {
-        await next();
-        seen.push((ctx as any).inner);
-      })
-      .register(child);
-
-    await app.run({});
-    expect(seen).toEqual([undefined]);
-  });
-
-  test("a registered module's middleware added after its first run is picked up on the next run", async () => {
-    const events: string[] = [];
-    const child = new Rhythm<{}>().use(async (_ctx, next) => {
-      events.push("first");
-      await next();
-    });
-    const app = new Rhythm<{}>().register(child);
-
-    await app.run({});
-    child.use(() => {
-      events.push("second");
-    });
-    await app.run({});
-
-    expect(events).toEqual(["first", "first", "second"]);
-  });
+  expect(cleaned).toBe(true);
 });
 
-describe("middleware()", () => {
-  test("context values are merged into the same shared ctx object passed in, not a fresh one", async () => {
-    const child = new Rhythm<{}, { greeting: string }>();
-    child.context.greeting = "hi";
-    const mw = child.middleware();
-
-    const ctx: Record<string, unknown> = {};
-    await mw(ctx as any, (async () => ctx) as any);
-
-    expect(ctx.greeting).toBe("hi");
+test("include runs a child Rhythm once at register time, seeing the parent's base ctx", async () => {
+  const seen: unknown[] = [];
+  const child = new Rhythm<Dyn>().register(decorate(() => ({ name: "child", own: "kept" }))).use(async (ctx, next) => {
+    seen.push(`${ctx.name}:${ctx.own}:${ctx.late}`);
+    await next();
   });
 
-  test("not calling next() inside the child halts the parent's downstream middleware too", async () => {
-    const events: string[] = [];
-    const child = new Rhythm<{}>().use(() => {
-      events.push("child");
-    });
+  const app = new Rhythm<Dyn>()
+    .register(decorate(() => ({ name: "parent" })))
+    .register((ctx) => {
+      ctx.late = "yes";
+    })
+    .register(include(child));
 
-    const app = new Rhythm<{}>().use(child.middleware()).use(() => {
-      events.push("parent-downstream");
-    });
+  expect(seen).toEqual(["parent:kept:yes"]);
 
-    await app.run({});
-    expect(events).toEqual(["child"]);
-  });
+  const handler = app.callback();
+  await handler();
+  await handler();
 
-  test("the child calling next() lets the parent's downstream middleware run", async () => {
-    const events: string[] = [];
-    const child = new Rhythm<{}>().use(async (ctx, next) => {
-      events.push("child");
+  expect(seen).toHaveLength(1);
+});
+
+test("include without a select callback exports nothing from the child", async () => {
+  const initial: Record<string, any> = {};
+  const child = new Rhythm<Dyn>()
+    .register(decorate(() => ({ base: 1 })))
+    .use(derive(() => ({ derived: 2 })))
+    .use(async (ctx, next) => {
+      ctx.mutated = true;
       await next();
     });
 
-    const app = new Rhythm<{}>().use(child.middleware()).use(() => {
-      events.push("parent-downstream");
-    });
+  const app = new Rhythm<Dyn>().register(decorate(() => ({ ...initial }))).register(include(child));
+  const result = await app.callback()();
 
-    await app.run({});
-    expect(events).toEqual(["child", "parent-downstream"]);
-  });
+  expect(initial.base).toBeUndefined();
+  expect(result.base).toBeUndefined();
+  expect(result.derived).toBeUndefined();
+  expect(result.mutated).toBeUndefined();
 });
 
-describe("sources", () => {
-  test("collects tagged middleware and registered modules in order, and sets parent", () => {
-    const a = {};
-    const b = {};
-    const tagged = (source: object): Middleware<{}> => withSource(async (_ctx, next) => void (await next()), source);
-    const child = new Rhythm().use(tagged(b));
-    const root = new Rhythm().use(tagged(a)).register(child);
-    expect(root.sources).toEqual([a, b]);
-    expect(child.parent).toBe(root);
-    expect(child.sources).toEqual([b]);
+test("include cascades: stopping the parent stops the child", async () => {
+  const calls: string[] = [];
+  const child = new Rhythm().register(
+    () => {},
+    () => void calls.push("child cleanup"),
+  );
+
+  const app = new Rhythm().register(
+    () => {},
+    () => void calls.push("parent cleanup"),
+  );
+  app.register(include(child));
+
+  await app.stop();
+
+  expect(calls).toEqual(["child cleanup", "parent cleanup"]);
+});
+
+test("include select exports chosen child values into the parent, typed", async () => {
+  const child = new Rhythm<Dyn>()
+    .register(decorate(() => ({ secret: "s3cret" })))
+    .use(derive((ctx) => ({ user: `user:${ctx.secret.length}` })));
+
+  const app = new Rhythm<Dyn>().register(include(child, (c) => ({ user: c.user })));
+
+  const result = await app.callback()();
+  const typed: string = result.user;
+
+  expect(typed).toBe("user:6");
+  expect(result.secret).toBeUndefined();
+});
+
+test("include select can rename and compute values", async () => {
+  const child = new Rhythm<Dyn>().register(decorate(() => ({ users: ["ada", "linus"] })));
+
+  const app = new Rhythm<Dyn>().register(include(child, (c) => ({ userCount: c.users.length })));
+
+  const result = await app.callback()();
+
+  expect(result.userCount).toBe(2);
+  expect(result.users).toBeUndefined();
+});
+
+test("include select value wins over an existing parent value", async () => {
+  const child = new Rhythm<Dyn>().use(async (ctx, next) => {
+    ctx.name = "child";
+    await next();
   });
 
-  test("module.middleware() carries the module as its source", () => {
-    const child = new Rhythm();
-    const root = new Rhythm().use(child.middleware());
-    expect(child.parent).toBe(root);
+  const app = new Rhythm<Dyn>()
+    .register(decorate(() => ({ name: "parent" })))
+    .register(include(child, (c) => ({ name: c.name })));
+
+  const result = await app.callback()();
+
+  expect(result.name).toBe("child");
+});
+
+test("include select reaches the very first request, even from an async child", async () => {
+  const child = new Rhythm<Dyn>().use(async (ctx, next) => {
+    await Bun.sleep(20);
+    ctx.token = "ready";
+    await next();
   });
+
+  const seen: unknown[] = [];
+  const app = new Rhythm<Dyn>().register(include(child, (c) => ({ token: c.token }))).use((ctx) => {
+    seen.push(ctx.token);
+  });
+
+  const handler = app.callback();
+  await Promise.all([handler(), handler()]);
+
+  expect(seen).toEqual(["ready", "ready"]);
+});
+
+test("compose is standalone and works with any ctx", async () => {
+  const ctx = { log: [] as string[] };
+  const fn = compose<typeof ctx>([
+    async (c, next) => {
+      c.log.push("a");
+      await next();
+      c.log.push("c");
+    },
+    (c) => {
+      c.log.push("b");
+    },
+  ]);
+
+  await fn(ctx);
+
+  expect(ctx.log).toEqual(["a", "b", "c"]);
 });

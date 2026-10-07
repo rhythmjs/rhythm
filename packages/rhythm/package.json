@@ -1,7 +1,7 @@
 {
   "name": "@rhythmjs/rhythm",
   "version": "0.0.16",
-  "description": "A minimal, type-safe onion-middleware and provider composition kernel.",
+  "description": "A minimal, type-safe middleware and startup-composition kernel: register() at startup, use() per request, with derive, decorate, mount and include.",
   "homepage": "https://rhythm.js.org/rhythm",
   "license": "ISC",
   "repository": {
@@ -23,6 +23,26 @@
       "types": "./dist/compose.d.ts",
       "default": "./dist/compose.js"
     },
+    "./pipeline": {
+      "types": "./dist/pipeline.d.ts",
+      "default": "./dist/pipeline.js"
+    },
+    "./derive": {
+      "types": "./dist/derive.d.ts",
+      "default": "./dist/derive.js"
+    },
+    "./decorate": {
+      "types": "./dist/decorate.d.ts",
+      "default": "./dist/decorate.js"
+    },
+    "./mount": {
+      "types": "./dist/mount.d.ts",
+      "default": "./dist/mount.js"
+    },
+    "./include": {
+      "types": "./dist/include.d.ts",
+      "default": "./dist/include.js"
+    },
     "./source": {
       "types": "./dist/source.d.ts",
       "default": "./dist/source.js"
@@ -37,7 +57,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "bun build src/rhythm.ts src/compose.ts src/source.ts src/types.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && bun build src/rhythm.ts src/compose.ts src/pipeline.ts src/derive.ts src/decorate.ts src/mount.ts src/include.ts src/source.ts src/types.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
     "prepublishOnly": "bun run typecheck && bun test && bun run build",
     "typecheck": "tsc --noEmit",
     "test": "bun test"

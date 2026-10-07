@@ -1,49 +1,82 @@
 # @rhythmjs/cli
 
-The command-line layer of Rhythm, the Bun-native backend framework: CLI command routing on top of the `@rhythmjs/rhythm` kernel. `RhythmCli` matches commands against argv positional tokens with a simple linear scan (appropriate for the handful-to-dozens of commands a real CLI has), supports prefixes and nested command groups, and mounts flat into a parent `Rhythm` app via `.use(cli.middleware())`, so an unmatched command correctly falls through to whatever's registered after it.
+The command-line layer of Rhythm, the Bun-native backend framework: command routing on top of the `@rhythmjs/rhythm` kernel. `RhythmCli` matches commands against the leading words of argv with [rou3](https://github.com/h3js/rou3), supports nested command groups (`db migrate`), optional and catch-all params, and runs per-command middleware chains.
 
-`RhythmCli` is not an app and does not extend `Rhythm`; it is a controller that compiles commands and middleware down to a single middleware (`.middleware()`). It shares the core middleware contract (`compose`, `Middleware`, `derive`; `next()` takes no arguments, extend the context with `derive()`), but has no startup `context` or `register()`, and it can't be served on its own: a `Rhythm` app is always the host that owns the lifecycle.
+`RhythmCli` is a `Pipeline`, like `Rhythm`: it has request-time `use()` middleware and commands, but no startup phase. It runs on its own through `toCliHandler(cli)`, or mounts into a `Rhythm` app with `mount(cli)` when you want startup work (`register`, `decorate`, `include`) around it.
 
 ## Example
 
 ```ts
-import { Rhythm } from "@rhythmjs/rhythm";
 import { RhythmCli } from "@rhythmjs/cli";
+import { withParsedArgv } from "@rhythmjs/cli/argv";
 import { toCliHandler } from "@rhythmjs/cli/run";
-import type { RhythmCliContext } from "@rhythmjs/cli/context";
 
-const cli = new RhythmCli().command("deploy :environment", (ctx) => {
-  ctx.response.print(`deploying to ${ctx.args.environment}`);
-});
+const cli = new RhythmCli({ name: "tool" })
+  .use(withParsedArgv())
+  .cmd("greet :name?", (ctx) => {
+    const message = `hello ${ctx.params.name ?? "world"}`;
+    ctx.log(ctx.flags.shout ? message.toUpperCase() : message);
+  })
+  .cmd(
+    "deploy :env",
+    (ctx, next) => {
+      if (!["staging", "production"].includes(ctx.params.env))
+        return ctx.fail(`unknown environment '${ctx.params.env}'`);
+      return next();
+    },
+    (ctx) => ctx.log(`deployed to ${ctx.params.env}`),
+  );
 
-const app = new Rhythm<RhythmCliContext>().use(cli.middleware());
-process.exitCode = await toCliHandler(app)(process.argv.slice(2));
+process.exitCode = await toCliHandler(cli)(Bun.argv.slice(2));
 ```
-
-A fuller runnable version, including nested command groups and interactive prompts, is at [`examples/cli`](../../examples/cli).
 
 ## Concepts
 
-- **`ctx.response`**: `print(line)`, `printError(line)`, `exit(code)`, all chainable. Flushed to the console and returned as the process exit code by the adapter.
-- **`ctx.args`**: captured `:name` command tokens, added once a command matches.
-- **`ctx.flags`**: parsed `--foo` / `--foo=bar` / `-f` options. Schema-less: a bare `--foo` is boolean `true`, `--foo bar` takes the next token as its value unless the token itself looks like a flag, the same default behavior as `minimist`.
-- **`ctx.stdin`**: a `ReadableStream`, or `null` when stdin is a TTY (nothing piped in).
-- **Interactive prompts**: `createPrompt()` gives `text()`/`confirm()`/`select()`/`multiSelect()` (the latter two support an `allowCustom` option that adds a "type your own" choice). Wire it in via `app.context.prompt = ...` on the host `Rhythm` app; see the example.
-- **Prefixes compose across nesting**: a child cli mounted into a prefixed parent via `.use(child)` gets the parent's prefix segments joined onto every one of its commands, at any nesting depth. Mounting copies the child's commands and middleware at that moment; commands added to the child afterwards don't appear in the parent, and the child keeps working standalone.
-- **Registration order is execution order**: a `.use()` middleware wraps only the commands registered after it, and runs only when one of them matches the argv (so a guard never answers `help` or another cli's commands); a mounted cli (`.use(child.middleware())`) always runs; commands registered before it are untouched, and a matched command that doesn't call `next()` returns without reaching anything registered later. An unmatched command falls through, entry by entry, to the outer `next()`.
-- **Conditional middleware**: `.use(fn, condition)` also needs `condition(ctx)` to return true (sync or async); the second callback only narrows, so a middleware registered after every command still never runs.
-- **A cli is a controller, not a module**: it has no startup `context` or `register()`, and it cannot be `register()`ed into a `Rhythm` app either; `register()` composes `Rhythm` modules only. A cli mounts into an app exactly one way: koa-style, via `.use(cli.middleware())`.
+- **Commands.** `cmd(command, ...handlers)` takes a space-separated command (`"db migrate :name"`). Words are literal unless they start with `:`. Handlers are `(ctx, next)` middleware and form a chain; the first may be `derive()`, which widens the context type for the handlers after it. Matching uses the words before the first flag, so `deploy staging --force` matches `deploy :env`.
+- **Params.** `:name` is required, `:name?` optional (absent when not given), `:name+` / `:name*` / `**:name` capture the remaining words as a `string[]` (`*` and `**` alone land in `params["0"]`). Values are URI-decoded. Params are typed from the command string: `:name` is `string`, `:name?` is `string | undefined`, catch-alls are `string[]`, and reading a name that is not in the command is a compile error.
+- **Strict context.** The context only has what was added: `ctx.nope` is a compile error, `ctx.flags` only exists after `withParsedArgv()`, `ctx.prompt` only after `withPrompt()`, and `derive()` widens it for the handlers after it. A command-level `derive` only affects that command. `toCliHandler(app)` rejects, at compile time, an app that requires input the runner cannot supply.
+- **Request-time middleware.** `cli.use(middleware)` wraps commands and runs only when a command matched, so a guard never answers an unknown command. `derive()` extends the context type.
+- **Running and exit codes.** `toCliHandler(app, io?)` returns `(argv) => Promise<number>`: the exit code. It reports an unmatched command as `error: unknown command 'x'` (exit code 2, or `no command given`), and a thrown error as an error line (exit code 1). `app` can be a `RhythmCli`, or a `Rhythm` app that mounts one. Register `cmd("", handler)` to handle the no-argument case yourself.
+- **Output.** The context carries `argv`, `stdout`, `stderr`, `exitCode`, and the helpers `log(...)` (stdout), `error(...)` (stderr) and `fail(message, code = 1)` (prints `error: message` to stderr and sets the exit code). Pass `io: { stdout, stderr }` to `toCliHandler` to capture output, e.g. in tests.
+- **Named failures.** `new RhythmCli({ name })` labels failures when mounted: `mounted cli "tool" failed` with the original error as `cause`.
+
+## Opt-in extensions
+
+Nothing is added to the context unless you ask for it:
+
+- **`withParsedArgv()`** (`@rhythmjs/cli/argv`) adds `ctx.flags` and `ctx.positionals`. Parsing is schema-less: `--foo=bar` and `--foo bar` give a string, a bare `--foo` (or one followed by another flag) is `true`, `-f` works the same way, and everything after `--` is positional. Like `minimist`, `--force now` consumes `now` as the value. `parseArgv(argv)` is the same parser as a plain function.
+- **`withPrompt()`** (`@rhythmjs/cli/prompt`) adds `ctx.prompt` with `text()`, `confirm()`, `select()` and `multiSelect()` (the last two accept `allowCustom` to add a "type your own" choice) and closes its input when the command finishes. By default it reads lines through Bun's async-iterable `console`, only when you first ask; pass `() => ({ ask, write, close? })` to supply your own IO. `createPrompt(io)` is the same thing without the middleware.
+
+```ts
+const cli = new RhythmCli().use(withPrompt()).cmd("init", async (ctx) => {
+  const name = await ctx.prompt.text("Project name?", { default: "my-app" });
+  if (await ctx.prompt.confirm("Install dependencies?", { default: true })) ctx.log(`installing for ${name}`);
+});
+```
+
+## With a Rhythm app
+
+```ts
+import { Rhythm, decorate, mount } from "@rhythmjs/rhythm";
+
+const app = new Rhythm({ name: "tool" })
+  .register(decorate(async () => ({ config: await loadConfig() })))
+  .use(mount(cli));
+
+process.exitCode = await toCliHandler(app)(Bun.argv.slice(2));
+```
 
 ## API
 
-- `new RhythmCli(options?)`: `options.prefix` (space-separated, e.g. `"remote"`).
-- `.command(path, ...handlers)`: register a command; `path` is space-separated and may contain `:param` tokens (e.g. `"deploy :environment"`). A trailing `:param?` is optional (e.g. `"new :name?"`): `ctx.args.param` is left out when the token is absent. Optional params must come last. A trailing `**` is a catch-all, like the router: it captures the remaining positionals into `ctx.args._`, joined by spaces, and is absent when there are none (e.g. `"run :script **"`). Order is required, then optional, then at most one catch-all.
-- `.use(fn)`: plain middleware. `.use(child)`: mount a nested `RhythmCli` (prefixes compose).
-- `.middleware()`: this CLI as a plain middleware, for mounting into a `Rhythm` app via `.use()`; the cli's only way onto a runtime. Note: mounting a _cli_ into a _cli_ must use `.use(child)`, not `.use(child.commands())`, because an opaque middleware can't have the parent's prefix applied to its commands.
-- `.entries`: a read-only snapshot of registered middlewares and commands, in order. `.middleware()` is tagged with the cli as its source, so a parent module lists it in `sources`.
-- `toCliHandler(app)`: bridges a `Rhythm` app to `(argv: string[]) => Promise<number>`.
-- `createPrompt()`: a `{ text, confirm, select, multiSelect }` prompt reading lines through Bun's async-iterable `console`, for use with `app.context` on the host app.
+- `new RhythmCli<I, D>(options?)`: `I` is context the CLI needs from the parent (checked by `mount()`), `D` is what its own `derive()` calls add; both are usually inferred. `options.name` labels failures (`type` defaults to `"cli"`).
+- `.cmd(command, ...handlers)`: register a command.
+- `.use(middleware)`: command-level middleware; `derive()` extends the context type.
+- `.callback()`: the CLI as a `(ctx) => Promise<ctx>` function, used by `mount()` and `toCliHandler()`.
+- `.sources` / `.parent` / `.options`: inherited from `Pipeline`.
+- `createCliContext(argv, io?)` (`@rhythmjs/cli/context`): the base context with `log`, `error`, `fail` and `exitCode`.
+- `toCliHandler(app, io?)` (`@rhythmjs/cli/run`): bridges a CLI or `Rhythm` app to `(argv) => Promise<number>`.
+- `parseArgv(argv)`, `withParsedArgv()` (`@rhythmjs/cli/argv`); `createPrompt(io)`, `createStdioPromptIO()`, `withPrompt(createIO?)` (`@rhythmjs/cli/prompt`).
 
 ## Running on Bun
 
-`@rhythmjs/cli/run` is the runtime half, coupled to Bun on purpose: `toCliHandler(app)` reads piped input through `Bun.stdin.stream()` (a TTY leaves `ctx.stdin` null), and `createPrompt()` reads answer lines through Bun's async-iterable `console`.
+The runtime half is coupled to Bun on purpose: prompts read through Bun's async-iterable `console`, and nothing is adapted for other runtimes.

@@ -1,27 +1,37 @@
-export class RhythmCliResponse {
-  exitCode = 0;
-  stdout: string[] = [];
-  stderr: string[] = [];
+import { format } from "node:util";
 
-  print(line: string): this {
-    this.stdout.push(line);
-    return this;
-  }
+export type CliWriter = { write(text: string): unknown };
 
-  printError(line: string): this {
-    this.stderr.push(line);
-    return this;
-  }
-
-  exit(code: number): this {
-    this.exitCode = code;
-    return this;
-  }
-}
+export type CliIO = { stdout: CliWriter; stderr: CliWriter };
 
 export interface RhythmCliContext {
-  readonly argv: readonly string[];
-  readonly flags: Readonly<Record<string, string | boolean>>;
-  readonly stdin: ReadableStream<Uint8Array> | null;
-  readonly response: RhythmCliResponse;
+  readonly argv: string[];
+  readonly stdout: CliWriter;
+  readonly stderr: CliWriter;
+  exitCode: number;
+  log(...parts: unknown[]): void;
+  error(...parts: unknown[]): void;
+  fail(this: RhythmCliContext, message: string, code?: number): void;
+}
+
+export function createCliContext(
+  argv: string[],
+  io: CliIO = { stdout: process.stdout, stderr: process.stderr },
+): RhythmCliContext {
+  return {
+    argv,
+    stdout: io.stdout,
+    stderr: io.stderr,
+    exitCode: 0,
+    log(...parts: unknown[]): void {
+      io.stdout.write(`${format(...parts)}\n`);
+    },
+    error(...parts: unknown[]): void {
+      io.stderr.write(`${format(...parts)}\n`);
+    },
+    fail(this: RhythmCliContext, message: string, code: number = 1): void {
+      io.stderr.write(`error: ${message}\n`);
+      this.exitCode = code;
+    },
+  };
 }

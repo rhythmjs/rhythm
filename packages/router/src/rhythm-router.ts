@@ -1,205 +1,131 @@
-import { compose, gate } from "@rhythmjs/rhythm/compose";
-import { sourceOf, withSource } from "@rhythmjs/rhythm/source";
-import type { Condition, DeriveMiddleware, Middleware, NextFn } from "@rhythmjs/rhythm/types";
-import { addRoute, createRouter, findRoute, type RouterContext } from "rou3";
+import { addRoute, createRouter, findRoute, type InferRouteParams } from "rou3";
+import {
+  Pipeline,
+  compose,
+  type ExtensionMiddleware,
+  type Middleware,
+  type Next,
+  type PipelineOptions,
+} from "@rhythmjs/rhythm";
 import type { RhythmHttpContext } from "./context";
 
-export interface RhythmRouterContext {
-  readonly params: Readonly<Record<string, string>>;
-}
+export type RouterContext<T extends object> = T & RhythmHttpContext;
 
-export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+export type UseContext<T extends object> = RouterContext<T> & { readonly params: Record<string, string> };
 
-export interface RhythmRouterOptions {
-  prefix?: string;
-}
+export type RouteContext<T extends object, P extends string> = RouterContext<T> & {
+  params: InferRouteParams<P>;
+};
 
-export type RouterEntry =
-  | { readonly kind: "middleware"; readonly fn: Middleware<any> }
-  | {
-      readonly kind: "route";
-      readonly method: HttpMethod;
-      readonly path: string;
-      readonly handlers: readonly Middleware<any>[];
-    };
+export type RouteHandler<T extends object, P extends string> = (
+  ctx: RouteContext<T, P>,
+  next: Next,
+) => unknown | Promise<unknown>;
 
-type Entry =
-  | { kind: "middleware"; fn: Middleware<any> }
-  | { kind: "route"; method: HttpMethod; path: string; handlers: Middleware<any>[] };
+export type RouteHandlers<T extends object, P extends string> = [RouteHandler<T, P>, ...RouteHandler<T, P>[]];
 
-type RouteHandler<TContext> = Middleware<TContext & RhythmRouterContext>;
+type Route<T extends object> = (ctx: RouterContext<T>) => Promise<void>;
 
-export function joinPath(prefix: string, path: string): string {
-  if (!prefix) return path;
-  if (path === "/" || path === "") return prefix;
-  const trimmedPrefix = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  return `${trimmedPrefix}${normalizedPath}`;
-}
-
-export function mountedRoutes(
-  router: RhythmRouter<any, any>,
-  tree: RouterContext<any>,
-  seen = new Set<object>(),
-): void {
-  if (seen.has(router)) return;
-  seen.add(router);
-  for (const entry of router.entries) {
-    if (entry.kind === "route") addRoute(tree, entry.method, entry.path, true);
-    else {
-      const child = sourceOf(entry.fn);
-      if (child instanceof RhythmRouter) mountedRoutes(child, tree, seen);
+function decodeParams(params: Record<string, string> | undefined) {
+  const decoded: Record<string, string> = {};
+  try {
+    for (const [key, value] of Object.entries(params ?? {})) {
+      decoded[key] = decodeURIComponent(value);
     }
+  } catch {
+    return undefined;
   }
+  return decoded;
 }
 
-export class RhythmRouter<
-  TContext extends RhythmHttpContext = RhythmHttpContext,
-  TInput extends RhythmHttpContext = TContext,
-> {
-  #options: RhythmRouterOptions;
-  #entries: Entry[] = [];
+export class RhythmRouter<I extends object = {}, D extends object = {}> extends Pipeline<UseContext<I & D>> {
+  declare readonly "~input"?: I;
 
-  constructor(options: RhythmRouterOptions = {}) {
-    this.#options = options;
+  #routes = createRouter<Route<I & D>>();
+
+  constructor(options?: PipelineOptions) {
+    super({ type: "router", ...options });
   }
 
-  get #prefixPath(): string {
-    return this.#options.prefix ?? "";
+  override use<U extends object>(middleware: ExtensionMiddleware<UseContext<I & D>, U>): RhythmRouter<I, D & U>;
+  override use(middleware: Middleware<UseContext<I & D>>): this;
+  override use(middleware: Middleware<UseContext<I & D>>) {
+    return super.use(middleware);
   }
 
-  get entries(): readonly RouterEntry[] {
-    return [...this.#entries];
-  }
-
-  use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): RhythmRouter<TContext & TExtra, TInput>;
-  use(fn: Middleware<TContext>, condition?: Condition<TContext>): this;
-  use(fn: Middleware<TContext>, condition?: Condition<TContext>): any {
-    if (typeof fn !== "function") throw new TypeError("middleware must be a function!");
-    if (condition !== undefined && typeof condition !== "function")
-      throw new TypeError("condition must be a function!");
-    const source = sourceOf(fn);
-    const wrapped = condition ? gate(fn, condition) : fn;
-    this.#entries.push({ kind: "middleware", fn: condition && source ? withSource(wrapped, source) : wrapped });
-    return this;
-  }
-
-  #route(method: HttpMethod, path: string, handlers: Middleware<any>[]): this {
-    this.#entries.push({ kind: "route", method, path: joinPath(this.#prefixPath, path), handlers });
-    return this;
-  }
-
-  get<TExtra extends object>(
-    path: string,
-    middleware: DeriveMiddleware<TContext & RhythmRouterContext, TExtra>,
-    ...handlers: RouteHandler<TContext & TExtra>[]
+  get<P extends string, U extends object>(
+    path: P,
+    middleware: ExtensionMiddleware<RouteContext<I & D, P>, U>,
+    ...handlers: RouteHandler<I & D & U, P>[]
   ): this;
-  get(path: string, ...handlers: RouteHandler<TContext>[]): this;
+  get<P extends string>(path: P, ...handlers: RouteHandlers<I & D, P>): this;
   get(path: string, ...handlers: Middleware<any>[]): this {
     return this.#route("GET", path, handlers);
   }
 
-  post<TExtra extends object>(
-    path: string,
-    middleware: DeriveMiddleware<TContext & RhythmRouterContext, TExtra>,
-    ...handlers: RouteHandler<TContext & TExtra>[]
+  post<P extends string, U extends object>(
+    path: P,
+    middleware: ExtensionMiddleware<RouteContext<I & D, P>, U>,
+    ...handlers: RouteHandler<I & D & U, P>[]
   ): this;
-  post(path: string, ...handlers: RouteHandler<TContext>[]): this;
+  post<P extends string>(path: P, ...handlers: RouteHandlers<I & D, P>): this;
   post(path: string, ...handlers: Middleware<any>[]): this {
     return this.#route("POST", path, handlers);
   }
 
-  put<TExtra extends object>(
-    path: string,
-    middleware: DeriveMiddleware<TContext & RhythmRouterContext, TExtra>,
-    ...handlers: RouteHandler<TContext & TExtra>[]
+  put<P extends string, U extends object>(
+    path: P,
+    middleware: ExtensionMiddleware<RouteContext<I & D, P>, U>,
+    ...handlers: RouteHandler<I & D & U, P>[]
   ): this;
-  put(path: string, ...handlers: RouteHandler<TContext>[]): this;
+  put<P extends string>(path: P, ...handlers: RouteHandlers<I & D, P>): this;
   put(path: string, ...handlers: Middleware<any>[]): this {
     return this.#route("PUT", path, handlers);
   }
 
-  patch<TExtra extends object>(
-    path: string,
-    middleware: DeriveMiddleware<TContext & RhythmRouterContext, TExtra>,
-    ...handlers: RouteHandler<TContext & TExtra>[]
+  patch<P extends string, U extends object>(
+    path: P,
+    middleware: ExtensionMiddleware<RouteContext<I & D, P>, U>,
+    ...handlers: RouteHandler<I & D & U, P>[]
   ): this;
-  patch(path: string, ...handlers: RouteHandler<TContext>[]): this;
+  patch<P extends string>(path: P, ...handlers: RouteHandlers<I & D, P>): this;
   patch(path: string, ...handlers: Middleware<any>[]): this {
     return this.#route("PATCH", path, handlers);
   }
 
-  delete<TExtra extends object>(
-    path: string,
-    middleware: DeriveMiddleware<TContext & RhythmRouterContext, TExtra>,
-    ...handlers: RouteHandler<TContext & TExtra>[]
+  delete<P extends string, U extends object>(
+    path: P,
+    middleware: ExtensionMiddleware<RouteContext<I & D, P>, U>,
+    ...handlers: RouteHandler<I & D & U, P>[]
   ): this;
-  delete(path: string, ...handlers: RouteHandler<TContext>[]): this;
+  delete<P extends string>(path: P, ...handlers: RouteHandlers<I & D, P>): this;
   delete(path: string, ...handlers: Middleware<any>[]): this {
     return this.#route("DELETE", path, handlers);
   }
 
-  #compile(): (context: TContext, next?: NextFn<TContext>) => Promise<TContext> {
-    type RouteDispatch = (context: TContext & RhythmRouterContext, next?: NextFn<any>) => Promise<unknown>;
-
-    const dispatchFor = (tree: RouterContext<RouteDispatch>): Middleware<any> => {
-      return async (ctx, next) => {
-        const match = findRoute(tree, ctx.request.method, new URL(ctx.request.url).pathname);
-        if (!match) {
-          await next();
-          return;
-        }
-        await match.data({ ...ctx, params: match.params ?? {} } as TContext & RhythmRouterContext, next);
-      };
+  override callback() {
+    const run = this.chain();
+    return async (input: RouterContext<I>) => {
+      const ctx = input as RouterContext<I & D>;
+      const match = this.#match(ctx);
+      if (!match) return ctx;
+      Object.assign(ctx, { params: match.params });
+      await run(ctx as UseContext<I & D>, () => match.route(ctx));
+      return ctx;
     };
-
-    const trees: RouterContext<any>[] = [];
-    const reaches = (ctx: { request: Request }, from: number): boolean => {
-      const method = ctx.request.method;
-      const pathname = new URL(ctx.request.url).pathname;
-      for (let t = from; t < trees.length; t++) if (findRoute(trees[t]!, method, pathname)) return true;
-      return false;
-    };
-
-    const stack: Middleware<any>[] = [];
-    let i = 0;
-    while (i < this.#entries.length) {
-      const entry = this.#entries[i]!;
-      if (entry.kind === "middleware") {
-        const { fn } = entry;
-        const source = sourceOf(fn);
-        if (source) {
-          if (source instanceof RhythmRouter) {
-            const tree = createRouter<true>();
-            mountedRoutes(source, tree);
-            trees.push(tree);
-          }
-          stack.push(fn);
-        } else {
-          const from = trees.length;
-          stack.push((ctx, next) => (reaches(ctx, from) ? fn(ctx, next) : next()));
-        }
-        i++;
-        continue;
-      }
-      const tree = createRouter<RouteDispatch>();
-      while (i < this.#entries.length) {
-        const route = this.#entries[i]!;
-        if (route.kind !== "route") break;
-        addRoute(tree, route.method, route.path, compose(route.handlers) as RouteDispatch);
-        i++;
-      }
-      trees.push(tree);
-      stack.push(dispatchFor(tree));
-    }
-
-    return compose<TContext>(stack);
   }
 
-  middleware(): Middleware<TInput> {
-    const fn = this.#compile();
-    return withSource(async (ctx, next) => {
-      await fn(ctx as unknown as TContext, next as never);
-    }, this);
+  #match(ctx: RouterContext<I & D>) {
+    const found = findRoute(this.#routes, ctx.request.method, new URL(ctx.request.url).pathname);
+    if (!found) return undefined;
+    const params = decodeParams(found.params);
+    if (!params) return undefined;
+    return { route: found.data, params };
+  }
+
+  #route(method: string, path: string, handlers: Middleware<any>[]): this {
+    const chain = compose(handlers as Middleware<RouterContext<I & D>>[]);
+    addRoute(this.#routes, method, path, (ctx) => chain(ctx));
+    return this;
   }
 }

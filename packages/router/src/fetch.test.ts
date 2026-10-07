@@ -1,165 +1,109 @@
-import { join } from "node:path";
-import { describe, expect, spyOn, test } from "bun:test";
-import { Rhythm } from "@rhythmjs/rhythm";
+import { test, expect, spyOn } from "bun:test";
+import { Rhythm, mount } from "@rhythmjs/rhythm";
+import type { RhythmHttpContext } from "./context";
 import { RhythmRouter } from "./rhythm-router";
 import { errorToResponse, toFetchHandler } from "./fetch";
-import type { RhythmHttpContext } from "./context";
 
-describe("toFetchHandler()", () => {
-  test("ctx.response is seeded up front and mutated directly, koa-style", async () => {
-    const app = new Rhythm<RhythmHttpContext>().use((ctx) => {
-      ctx.response.status = 201;
-      ctx.response.headers.set("x-custom", "yes");
-      ctx.response.body = "created";
-    });
-
-    const res = await toFetchHandler(app)(new Request("http://localhost/"));
-
-    expect(res.status).toBe(201);
-    expect(res.headers.get("x-custom")).toBe("yes");
-    expect(await res.text()).toBe("created");
+test("toFetchHandler turns a request into a Response through the app", async () => {
+  const app = new Rhythm<{}, RhythmHttpContext>().use(async (ctx, next) => {
+    ctx.text(`you asked for ${new URL(ctx.request.url).pathname}`);
+    await next();
   });
 
-  test("defaults to an empty 200 response when no middleware touches it", async () => {
-    const app = new Rhythm<RhythmHttpContext>().use(() => {});
-    const res = await toFetchHandler(app)(new Request("http://localhost/"));
+  const response = await toFetchHandler(app)(new Request("http://localhost/hello"));
 
-    expect(res.status).toBe(200);
-    expect(await res.text()).toBe("");
-  });
-
-  test("outer middleware can read and adjust the response an inner middleware set, since it's the same mutable object", async () => {
-    const app = new Rhythm<RhythmHttpContext>()
-      .use(async (ctx, next) => {
-        await next();
-        ctx.response.headers.set("x-onion", `outer-saw-${ctx.response.status}`);
-      })
-      .use((ctx) => {
-        ctx.response.status = 404;
-        ctx.response.body = "not found";
-      });
-
-    const res = await toFetchHandler(app)(new Request("http://localhost/"));
-
-    expect(res.status).toBe(404);
-    expect(res.headers.get("x-onion")).toBe("outer-saw-404");
-    expect(await res.text()).toBe("not found");
-  });
-
-  test("startup context values are available on every request context", async () => {
-    const app = new Rhythm<RhythmHttpContext, { greeting: string }>().use((ctx) => {
-      ctx.response.body = ctx.greeting;
-    });
-    app.context.greeting = "hi";
-
-    const handler = toFetchHandler(app);
-    const [first, second] = await Promise.all([
-      handler(new Request("http://localhost/")),
-      handler(new Request("http://localhost/")),
-    ]);
-
-    expect(await first.text()).toBe("hi");
-    expect(await second.text()).toBe("hi");
-  });
+  expect(response.status).toBe(200);
+  expect(await response.text()).toBe("you asked for /hello");
 });
 
-describe("errorToResponse", () => {
-  test("maps unknown errors to a logged 500 and honors an error's own status", async () => {
-    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
-    try {
-      const internal = errorToResponse(new Error("boom"));
-      expect(internal.status).toBe(500);
-      expect(await internal.text()).toBe("Internal Server Error");
-      expect(errorSpy).toHaveBeenCalled();
-
-      const teapot = errorToResponse(Object.assign(new Error("short and stout"), { status: 418 }));
-      expect(teapot.status).toBe(418);
-      expect(await teapot.text()).toBe("short and stout");
-    } finally {
-      errorSpy.mockRestore();
-    }
+test("toFetchHandler gives each request its own response", async () => {
+  const app = new Rhythm<{}, RhythmHttpContext>().use((ctx) => {
+    ctx.text(new URL(ctx.request.url).pathname);
   });
+
+  const fetch = toFetchHandler(app);
+  const [a, b] = await Promise.all([
+    fetch(new Request("http://localhost/a")),
+    fetch(new Request("http://localhost/b")),
+  ]);
+
+  expect(await a.text()).toBe("/a");
+  expect(await b.text()).toBe("/b");
 });
 
-describe("errorToResponse hardening", () => {
-  test("hides messages from errors that opt out with expose: false", async () => {
-    const res = errorToResponse(Object.assign(new Error("db password is hunter2"), { status: 400, expose: false }));
+test("toFetchHandler answers 404 when nothing touched the response", async () => {
+  const response = await toFetchHandler(new Rhythm<{}, RhythmHttpContext>())(new Request("http://localhost/"));
 
-    expect(res.status).toBe(400);
-    expect(await res.text()).toBe("Bad Request");
-  });
-
-  test("ignores out-of-range or non-integer statuses instead of throwing", async () => {
-    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
-    try {
-      for (const status of [0, 99, 200, 302, 600, 1000, 4.5, Number.NaN, "404" as unknown as number]) {
-        const res = errorToResponse(Object.assign(new Error("odd"), { status }));
-        expect(res.status).toBe(500);
-        expect(await res.text()).toBe("Internal Server Error");
-      }
-    } finally {
-      errorSpy.mockRestore();
-    }
-  });
+  expect(response.status).toBe(404);
+  expect(await response.text()).toBe("Not Found");
+  expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
 });
 
-describe("hand-wired Bun.serve", () => {
-  test("toFetchHandler + Bun's native directory routes + errorToResponse + request.ip, no helpers", async () => {
-    const publicDir = await (async () => {
-      const { mkdtemp, writeFile } = await import("node:fs/promises");
-      const { tmpdir } = await import("node:os");
-      const made = await mkdtemp(join(tmpdir(), "rhythm-plain-static-"));
-      await writeFile(join(made, "hello.txt"), "hello static");
-      return made;
-    })();
-
-    const app = new Rhythm<RhythmHttpContext>({ name: "wired" }).use(
-      new RhythmRouter()
-        .get("/ping", (ctx) => ctx.text("pong"))
-        .get("/ip", (ctx) => ctx.text(String((ctx.request as { ip?: string }).ip)))
-        .get("/boom", () => {
-          throw new Error("boom");
-        })
-        .middleware(),
-    );
-    const handler = toFetchHandler(app);
-
-    const server = Bun.serve({
-      port: 0,
-      routes: { "/static/*": { dir: publicDir } },
-      async fetch(request, srv) {
-        Object.defineProperty(request, "ip", {
-          configurable: true,
-          get: () => srv.requestIP(request)?.address,
-        });
-        try {
-          return await handler(request);
-        } catch (error) {
-          return errorToResponse(error);
-        }
-      },
-    });
-    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
-    try {
-      const base = `http://localhost:${server.port}`;
-      expect(await (await fetch(`${base}/ping`)).text()).toBe("pong");
-
-      const file = await fetch(`${base}/static/hello.txt`);
-      expect(await file.text()).toBe("hello static");
-      const tag = file.headers.get("etag") as string;
-      expect((await fetch(`${base}/static/hello.txt`, { headers: { "if-none-match": tag } })).status).toBe(304);
-      expect((await fetch(`${base}/static/nope.txt`)).status).toBe(404);
-      expect((await fetch(`${base}/static/..%2f..%2fetc%2fpasswd`)).status).toBe(404);
-
-      expect((await fetch(`${base}/boom`)).status).toBe(500);
-      const ip = await (await fetch(`${base}/ip`)).text();
-      expect(ip.length).toBeGreaterThan(0);
-      expect(ip).not.toBe("undefined");
-    } finally {
-      errorSpy.mockRestore();
-      server.stop(true);
-      const { rm } = await import("node:fs/promises");
-      await rm(publicDir, { recursive: true, force: true });
-    }
+test("toFetchHandler keeps an intentional empty response", async () => {
+  const app = new Rhythm<{}, RhythmHttpContext>().use((ctx) => {
+    ctx.response.status = 204;
   });
+
+  const response = await toFetchHandler(app)(new Request("http://localhost/"));
+
+  expect(response.status).toBe(204);
+});
+
+test("toFetchHandler keeps a response that only set a header", async () => {
+  const app = new Rhythm<{}, RhythmHttpContext>().use((ctx) => {
+    ctx.response.headers.set("x-ready", "yes");
+  });
+
+  const response = await toFetchHandler(app)(new Request("http://localhost/"));
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("x-ready")).toBe("yes");
+});
+
+test("toFetchHandler works with a router, directly or mounted", async () => {
+  const router = new RhythmRouter().get("/users/:id", (ctx) => {
+    ctx.json({ id: ctx.params.id });
+  });
+
+  const direct = toFetchHandler(router);
+  const mounted = toFetchHandler(new Rhythm<{}, RhythmHttpContext>().use(mount(router)));
+
+  for (const fetch of [direct, mounted]) {
+    const hit = await fetch(new Request("http://localhost/users/42"));
+    const miss = await fetch(new Request("http://localhost/nope"));
+
+    expect(await hit.json()).toEqual({ id: "42" });
+    expect(miss.status).toBe(404);
+  }
+});
+
+test("toFetchHandler lets errors from the app reject", async () => {
+  const app = new Rhythm<{}, RhythmHttpContext>().use(() => {
+    throw new Error("boom");
+  });
+
+  expect(toFetchHandler(app)(new Request("http://localhost/"))).rejects.toThrow("boom");
+});
+
+test("errorToResponse uses a declared 4xx status and exposes its message", async () => {
+  const res = errorToResponse(Object.assign(new Error("nope"), { status: 403 }));
+  expect(res.status).toBe(403);
+  expect(await res.text()).toBe("nope");
+});
+
+test("errorToResponse hides the message of unexpected errors behind a 500", async () => {
+  const spy = spyOn(console, "error").mockImplementation(() => {});
+  const res = errorToResponse(new Error("secret"));
+  expect(res.status).toBe(500);
+  expect(await res.text()).toBe("Internal Server Error");
+  spy.mockRestore();
+});
+
+test("errorToResponse finds the status through a wrapped cause chain", async () => {
+  const wrapped = new Error('mounted router "api" failed', {
+    cause: Object.assign(new Error("missing"), { status: 404 }),
+  });
+  const res = errorToResponse(wrapped);
+  expect(res.status).toBe(404);
+  expect(await res.text()).toBe("missing");
 });

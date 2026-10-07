@@ -1,186 +1,138 @@
-import { compose, gate } from "@rhythmjs/rhythm/compose";
-import { sourceOf, withSource } from "@rhythmjs/rhythm/source";
-import type { Condition, DeriveMiddleware, Middleware, NextFn } from "@rhythmjs/rhythm/types";
+import { addRoute, createRouter, findRoute, type InferRouteParams } from "rou3";
+import {
+  Pipeline,
+  compose,
+  type ExtensionMiddleware,
+  type Middleware,
+  type Next,
+  type PipelineOptions,
+} from "@rhythmjs/rhythm";
 import type { RhythmCliContext } from "./context";
-import { parseArgv } from "./argv";
 
-export interface RhythmCliCommandContext {
-  readonly args: Readonly<Record<string, string>>;
+export type CliContext<T extends object> = T & RhythmCliContext;
+
+export type UseContext<T extends object> = CliContext<T> & { readonly params: Record<string, string | string[]> };
+
+type ToPath<Command extends string> = Command extends `${infer Word} ${infer Rest}`
+  ? `${Word}/${ToPath<Rest>}`
+  : Command;
+
+type CatchAllWord<Word extends string> = Word extends `**:${infer Name}`
+  ? Name
+  : Word extends `:${infer Name}+`
+    ? Name
+    : Word extends `:${infer Name}*`
+      ? Name
+      : Word extends "*" | "**"
+        ? "0"
+        : never;
+
+type CatchAllKey<Command extends string> = Command extends `${infer Word} ${infer Rest}`
+  ? CatchAllWord<Word> | CatchAllKey<Rest>
+  : CatchAllWord<Command>;
+
+type Flatten<T> = { [K in keyof T]: T[K] } & {};
+
+export type CommandParams<C extends string> = Flatten<
+  Omit<InferRouteParams<`/${ToPath<C>}`>, CatchAllKey<C> | "_"> & {
+    [K in CatchAllKey<C>]: string[];
+  }
+>;
+
+export type CommandContext<T extends object, C extends string> = CliContext<T> & {
+  params: CommandParams<C>;
+};
+
+export type CommandHandler<T extends object, C extends string> = (
+  ctx: CommandContext<T, C>,
+  next: Next,
+) => unknown | Promise<unknown>;
+
+export type CommandHandlers<T extends object, C extends string> = [CommandHandler<T, C>, ...CommandHandler<T, C>[]];
+
+type Route<T extends object> = {
+  run: (ctx: CliContext<T>) => Promise<void>;
+  catchAll: string | undefined;
+};
+
+const isFlag = (token: string) => token.startsWith("-") && token !== "-";
+
+const lookupPath = (words: string[]) => `/${words.map(encodeURIComponent).join("/")}`;
+
+function catchAllKey(words: string[]): string | undefined {
+  for (const word of words) {
+    const named = /^\*\*:(\w+)$/.exec(word) ?? /^:(\w+)[+*]$/.exec(word);
+    if (named) return named[1];
+    if (word === "*" || word === "**") return "0";
+  }
+  return undefined;
 }
 
-function toSegments(command: string): string[] {
-  return command.trim().split(/\s+/).filter(Boolean);
-}
-
-const isOptional = (segment: string) => segment.startsWith(":") && segment.endsWith("?");
-const isCatchAll = (segment: string) => segment === "**";
-
-function matchCommand(pattern: string[], positionals: string[]): Record<string, string> | null {
-  const catchAll = isCatchAll(pattern.at(-1)!);
-  const fixed = catchAll ? pattern.slice(0, -1) : pattern;
-  const required = fixed.filter((segment) => !isOptional(segment)).length;
-  if (positionals.length < required || (!catchAll && positionals.length > fixed.length)) return null;
-
-  const params: Record<string, string> = {};
-  for (let i = 0; i < fixed.length; i++) {
-    const segment = fixed[i]!;
-    const token = positionals[i];
-    if (segment.startsWith(":")) {
-      if (token !== undefined) params[segment.slice(1, isOptional(segment) ? -1 : undefined)] = token;
-    } else if (segment !== token) {
-      return null;
+function decodeParams(params: Record<string, string> | undefined, catchAll: string | undefined) {
+  const decoded: Record<string, string | string[]> = {};
+  try {
+    for (const [key, value] of Object.entries(params ?? {})) {
+      if (key === "_" && catchAll === "0") continue;
+      decoded[key] =
+        key === catchAll ? value.split("/").filter(Boolean).map(decodeURIComponent) : decodeURIComponent(value);
     }
+  } catch {
+    return undefined;
   }
-  if (catchAll && positionals.length > fixed.length) {
-    params._ = positionals.slice(fixed.length).join(" ");
-  }
-  return params;
+  if (catchAll !== undefined) decoded[catchAll] ??= [];
+  return decoded;
 }
 
-function assertValidPattern(path: string, segments: string[]): void {
-  const rank = (segment: string) => (isCatchAll(segment) ? 2 : isOptional(segment) ? 1 : 0);
-  for (let i = 1; i < segments.length; i++) {
-    if (rank(segments[i]!) < rank(segments[i - 1]!)) {
-      throw new TypeError(`optional params and a catch-all must come last, in that order, in command "${path}"`);
-    }
-  }
-  if (segments.filter(isCatchAll).length > 1) {
-    throw new TypeError(`command "${path}" has more than one catch-all`);
-  }
-}
+export class RhythmCli<I extends object = {}, D extends object = {}> extends Pipeline<UseContext<I & D>> {
+  declare readonly "~input"?: I;
 
-export interface RhythmCliOptions {
-  prefix?: string;
-}
+  #routes = createRouter<Route<I & D>>();
 
-type Entry =
-  { kind: "middleware"; fn: Middleware<any> } | { kind: "command"; segments: string[]; handlers: Middleware<any>[] };
-
-export type CliEntry =
-  | { readonly kind: "middleware"; readonly fn: Middleware<any> }
-  | { readonly kind: "command"; readonly segments: readonly string[]; readonly handlers: readonly Middleware<any>[] };
-
-function mountedCommands(cli: RhythmCli<any, any>, out: { segments: string[] }[], seen = new Set<object>()): void {
-  if (seen.has(cli)) return;
-  seen.add(cli);
-  for (const entry of cli.entries) {
-    if (entry.kind === "command") out.push({ segments: [...entry.segments] });
-    else {
-      const child = sourceOf(entry.fn);
-      if (child instanceof RhythmCli) mountedCommands(child, out, seen);
-    }
-  }
-}
-
-export class RhythmCli<
-  TContext extends RhythmCliContext = RhythmCliContext,
-  TInput extends RhythmCliContext = TContext,
-> {
-  #options: RhythmCliOptions;
-  #entries: Entry[] = [];
-
-  constructor(options: RhythmCliOptions = {}) {
-    this.#options = options;
+  constructor(options?: PipelineOptions) {
+    super({ type: "cli", ...options });
   }
 
-  get entries(): readonly CliEntry[] {
-    return [...this.#entries];
+  override use<U extends object>(middleware: ExtensionMiddleware<UseContext<I & D>, U>): RhythmCli<I, D & U>;
+  override use(middleware: Middleware<UseContext<I & D>>): this;
+  override use(middleware: Middleware<UseContext<I & D>>) {
+    return super.use(middleware);
   }
 
-  get #prefixSegments(): string[] {
-    return this.#options.prefix ? toSegments(this.#options.prefix) : [];
-  }
-
-  use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): RhythmCli<TContext & TExtra, TInput>;
-  use(fn: Middleware<TContext>, condition?: Condition<TContext>): this;
-  use(fn: Middleware<TContext>, condition?: Condition<TContext>): any {
-    if (typeof fn !== "function") throw new TypeError("middleware must be a function!");
-    if (condition !== undefined && typeof condition !== "function")
-      throw new TypeError("condition must be a function!");
-    const source = sourceOf(fn);
-    const wrapped = condition ? gate(fn, condition) : fn;
-    this.#entries.push({ kind: "middleware", fn: condition && source ? withSource(wrapped, source) : wrapped });
-    return this;
-  }
-
-  command<TExtra extends object>(
-    path: string,
-    middleware: DeriveMiddleware<TContext & RhythmCliCommandContext, TExtra>,
-    ...handlers: Middleware<TContext & RhythmCliCommandContext & TExtra>[]
+  cmd<C extends string, U extends object>(
+    command: C,
+    middleware: ExtensionMiddleware<CommandContext<I & D, C>, U>,
+    ...handlers: CommandHandler<I & D & U, C>[]
   ): this;
-  command(path: string, ...handlers: Middleware<TContext & RhythmCliCommandContext>[]): this;
-  command(path: string, ...handlers: Middleware<any>[]): this {
-    const segments = toSegments(path);
-    assertValidPattern(path, segments);
-    this.#entries.push({ kind: "command", segments: [...this.#prefixSegments, ...segments], handlers });
+  cmd<C extends string>(command: C, ...handlers: CommandHandlers<I & D, C>): this;
+  cmd(command: string, ...handlers: Middleware<any>[]): this {
+    const chain = compose(handlers as Middleware<CliContext<I & D>>[]);
+    const words = command.trim().split(/\s+/).filter(Boolean);
+    addRoute(this.#routes, "", `/${words.join("/")}`, {
+      run: (ctx) => chain(ctx),
+      catchAll: catchAllKey(words),
+    });
     return this;
   }
 
-  #compile(): (context: TContext, next?: NextFn<TContext>) => Promise<TContext> {
-    type CommandDispatch = (context: TContext & RhythmCliCommandContext, next?: NextFn<any>) => Promise<unknown>;
-    type CompiledCommand = { segments: string[]; dispatch: CommandDispatch };
-
-    const groups: { segments: string[] }[][] = [];
-    const reaches = (ctx: { argv: readonly string[] }, from: number): boolean => {
-      const { positionals } = parseArgv(ctx.argv as string[]);
-      for (let g = from; g < groups.length; g++) {
-        if (groups[g]!.some((command) => matchCommand(command.segments, positionals))) return true;
-      }
-      return false;
+  override callback() {
+    const run = this.chain();
+    return async (input: CliContext<I>) => {
+      const ctx = input as CliContext<I & D>;
+      const match = this.#match(ctx);
+      if (!match) return ctx;
+      Object.assign(ctx, { params: match.params });
+      await run(ctx as UseContext<I & D>, () => match.route.run(ctx));
+      return ctx;
     };
-
-    const dispatchFor = (compiled: CompiledCommand[]): Middleware<any> => {
-      return async (ctx, next) => {
-        const { positionals } = parseArgv(ctx.argv);
-        for (const command of compiled) {
-          const args = matchCommand(command.segments, positionals);
-          if (!args) continue;
-          await command.dispatch({ ...ctx, args } as TContext & RhythmCliCommandContext, next);
-          return;
-        }
-        await next();
-      };
-    };
-
-    const stack: Middleware<any>[] = [];
-    let i = 0;
-    while (i < this.#entries.length) {
-      const entry = this.#entries[i]!;
-      if (entry.kind === "middleware") {
-        const { fn } = entry;
-        const source = sourceOf(fn);
-        if (source) {
-          if (source instanceof RhythmCli) {
-            const commands: { segments: string[] }[] = [];
-            mountedCommands(source, commands);
-            groups.push(commands);
-          }
-          stack.push(fn);
-        } else {
-          const from = groups.length;
-          stack.push((ctx, next) => (reaches(ctx, from) ? fn(ctx, next) : next()));
-        }
-        i++;
-        continue;
-      }
-      const compiled: CompiledCommand[] = [];
-      while (i < this.#entries.length) {
-        const command = this.#entries[i]!;
-        if (command.kind !== "command") break;
-        compiled.push({ segments: command.segments, dispatch: compose(command.handlers) as CommandDispatch });
-        i++;
-      }
-      groups.push(compiled);
-      stack.push(dispatchFor(compiled));
-    }
-
-    return compose<TContext>(stack);
   }
 
-  middleware(): Middleware<TInput> {
-    const fn = this.#compile();
-    return withSource(async (ctx, next) => {
-      await fn(ctx as unknown as TContext, next as never);
-    }, this);
+  #match(ctx: CliContext<I & D>) {
+    const end = ctx.argv.findIndex(isFlag);
+    const words = end === -1 ? ctx.argv : ctx.argv.slice(0, end);
+    const found = findRoute(this.#routes, "", lookupPath(words));
+    if (!found) return undefined;
+    const params = decodeParams(found.params, found.data.catchAll);
+    if (!params) return undefined;
+    return { route: found.data, params };
   }
 }

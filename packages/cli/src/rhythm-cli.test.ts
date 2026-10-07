@@ -1,413 +1,554 @@
-import { describe, expect, test } from "bun:test";
-import { Rhythm } from "@rhythmjs/rhythm";
-import type { DeriveMiddleware, Middleware } from "@rhythmjs/rhythm/types";
-import { RhythmCliResponse, type RhythmCliContext } from "./context";
-import { toCliHandler } from "./run";
+import { test, expect } from "bun:test";
+import { parseArgs } from "node:util";
+import { Pipeline, Rhythm, decorate, derive, mount } from "@rhythmjs/rhythm";
 import { RhythmCli } from "./rhythm-cli";
+import { createCliContext } from "./context";
+import { toCliHandler } from "./run";
 
-const host = (cli: RhythmCli<any>) => new Rhythm<RhythmCliContext>().use(cli.middleware());
-
-function collect(app: Rhythm<RhythmCliContext, any, any>) {
-  return async (argv: string[]) => {
-    const ctx = await app.run({ argv, flags: {}, stdin: null, response: new RhythmCliResponse() });
-    return {
-      stdout: ctx.response.stdout.join("\n"),
-      stderr: ctx.response.stderr.join("\n"),
-      exitCode: ctx.response.exitCode,
-    };
+function harness() {
+  const out: string[] = [];
+  const err: string[] = [];
+  return {
+    io: {
+      stdout: { write: (text: string) => out.push(text) },
+      stderr: { write: (text: string) => err.push(text) },
+    },
+    stdout: () => out.join(""),
+    stderr: () => err.join(""),
   };
 }
 
-describe("RhythmCli", () => {
-  test("matches a command path and extracts named args", async () => {
-    const cli = new RhythmCli().command("deploy :environment", (ctx) => {
-      ctx.response.print(`deploying to ${ctx.args.environment}`);
-    });
-    const run = collect(host(cli));
+async function run(app: { callback(): (ctx: any) => Promise<unknown> }, argv: string[]) {
+  const h = harness();
+  const code = await toCliHandler(app, h.io)(argv);
+  return { code, stdout: h.stdout(), stderr: h.stderr() };
+}
 
-    const result = await run(["deploy", "production"]);
-    expect(result.stdout).toBe("deploying to production");
-    expect(result.exitCode).toBe(0);
+test("cmd runs its handler when the command matches", async () => {
+  const calls: string[] = [];
+  const cli = new RhythmCli().cmd("serve", () => void calls.push("serve"));
+
+  const result = await run(cli, ["serve"]);
+
+  expect(result.code).toBe(0);
+  expect(calls).toEqual(["serve"]);
+});
+
+test("params are parsed from the command and typed", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli().cmd("copy :from :to", (ctx) => {
+    const from: string = ctx.params.from;
+    const to: string = ctx.params.to;
+    seen.push(from, to);
   });
 
-  test("a trailing :param? is optional: absent when omitted, captured when given", async () => {
-    const cli = new RhythmCli().command("new :name?", (ctx) => {
-      ctx.response.print(`name=${ctx.args.name ?? "none"}`);
-    });
-    const run = collect(host(cli));
+  await run(cli, ["copy", "a.txt", "b.txt"]);
 
-    expect((await run(["new"])).stdout).toBe("name=none");
-    expect((await run(["new", "app"])).stdout).toBe("name=app");
-    expect((await run(["new", "app", "extra"])).stdout).toBe("");
+  expect(seen).toEqual(["a.txt", "b.txt"]);
+});
+
+test("params are checked at compile time", () => {
+  new RhythmCli().cmd("copy :from :to?", (ctx) => {
+    // @ts-expect-error
+    ctx.params.nope;
+    // @ts-expect-error
+    const to: string = ctx.params.to;
+    return to;
+  });
+  // @ts-expect-error
+  new RhythmCli().cmd("copy");
+});
+
+test("multi-word commands act as subcommands", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli()
+    .cmd("db migrate :name", (ctx) => void seen.push(`migrate:${ctx.params.name}`))
+    .cmd("db seed :count?", (ctx) => void seen.push(`seed:${ctx.params.count}`));
+
+  await run(cli, ["db", "migrate", "init"]);
+  await run(cli, ["db", "seed"]);
+  await run(cli, ["db", "seed", "5"]);
+
+  expect(seen).toEqual(["migrate:init", "seed:undefined", "seed:5"]);
+});
+
+test("the most specific command wins, whatever the registration order", async () => {
+  const seen: string[] = [];
+  const cli = new RhythmCli()
+    .cmd("db :action", (ctx) => void seen.push(`action:${ctx.params.action}`))
+    .cmd("db migrate", () => void seen.push("migrate"));
+
+  await run(cli, ["db", "migrate"]);
+  await run(cli, ["db", "seed"]);
+
+  expect(seen).toEqual(["migrate", "action:seed"]);
+});
+
+test("an empty command is the root command", async () => {
+  const seen: string[] = [];
+  const cli = new RhythmCli().cmd("", () => void seen.push("root"));
+
+  const result = await run(cli, []);
+
+  expect(result.code).toBe(0);
+  expect(seen).toEqual(["root"]);
+});
+
+test("**:name collects the remaining words as an array, at least one", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli().cmd("echo **:words", (ctx) => {
+    const words: string[] = ctx.params.words;
+    seen.push(words);
   });
 
-  test("a required param after an optional one is rejected", () => {
-    expect(() => new RhythmCli().command("new :name? :dir", () => {})).toThrow("must come last");
+  await run(cli, ["echo", "a", "b", "c"]);
+  await run(cli, ["echo", "a"]);
+  const none = await run(cli, ["echo"]);
+
+  expect(seen).toEqual([["a", "b", "c"], ["a"]]);
+  expect(none.code).toBe(2);
+});
+
+test(":name+ and :name* collect words too, one-or-more and zero-or-more", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli()
+    .cmd("add :files+", (ctx) => void seen.push(["add", ctx.params.files]))
+    .cmd("list :names*", (ctx) => void seen.push(["list", ctx.params.names]));
+
+  await run(cli, ["add", "a", "b"]);
+  const none = await run(cli, ["add"]);
+  await run(cli, ["list"]);
+  await run(cli, ["list", "x", "y", "z"]);
+
+  expect(seen).toEqual([
+    ["add", ["a", "b"]],
+    ["list", []],
+    ["list", ["x", "y", "z"]],
+  ]);
+  expect(none.code).toBe(2);
+});
+
+test("bare * and ** capture under key 0 as an array", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli()
+    .cmd("rest *", (ctx) => void seen.push(["*", ctx.params[0]]))
+    .cmd("any **", (ctx) => void seen.push(["**", ctx.params[0], "_" in ctx.params]));
+
+  await run(cli, ["rest", "a", "b"]);
+  await run(cli, ["any"]);
+  await run(cli, ["any", "x"]);
+
+  expect(seen).toEqual([
+    ["*", ["a", "b"]],
+    ["**", [], false],
+    ["**", ["x"], false],
+  ]);
+});
+
+test("named params and a catch-all can be combined", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli().cmd("copy :source **:targets", (ctx) => {
+    const source: string = ctx.params.source;
+    const targets: string[] = ctx.params.targets;
+    seen.push(source, targets);
   });
 
-  test("a trailing ** catch-all captures the remaining positionals in args._, joined by spaces", async () => {
-    const cli = new RhythmCli().command("run :script **", (ctx) => {
-      ctx.response.print(`${ctx.args.script}|${ctx.args._ ?? "none"}`);
-    });
-    const run = collect(host(cli));
+  await run(cli, ["copy", "a.txt", "b.txt", "c.txt"]);
 
-    expect((await run(["run", "build"])).stdout).toBe("build|none");
-    expect((await run(["run", "build", "a", "b"])).stdout).toBe("build|a b");
-    expect((await run(["run"])).stdout).toBe("");
-  });
+  expect(seen).toEqual(["a.txt", ["b.txt", "c.txt"]]);
+});
 
-  test("a catch-all must be last and unique", () => {
-    expect(() => new RhythmCli().command("run ** :x", () => {})).toThrow("must come last");
-    expect(() => new RhythmCli().command("run ** **", () => {})).toThrow();
-  });
+test("words inside a catch-all keep their slashes, spaces and percent signs", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli().cmd("echo **:words", (ctx) => void seen.push(ctx.params.words));
 
-  test("falls through when the command path doesn't match: no output, default exit code", async () => {
-    const cli = new RhythmCli().command("deploy :environment", (ctx) => {
-      ctx.response.print("deployed");
-    });
-    const run = collect(host(cli));
+  await run(cli, ["echo", "src/a.ts", "my notes", "100%"]);
 
-    const result = await run(["build"]);
-    expect(result.stdout).toBe("");
-    expect(result.exitCode).toBe(0);
-  });
+  expect(seen).toEqual([["src/a.ts", "my notes", "100%"]]);
+});
 
-  test("multiple handlers per command compose in onion order", async () => {
-    const events: string[] = [];
-    const cli = new RhythmCli().command(
-      "deploy :environment",
-      async (ctx, next) => {
-        events.push("auth:before");
-        await next();
-        events.push("auth:after");
-      },
-      (ctx) => {
-        events.push(`handler:${ctx.args.environment}`);
-      },
-    );
+test("specificity: a literal beats a param, which beats a catch-all", async () => {
+  const seen: string[] = [];
+  const cli = new RhythmCli()
+    .cmd("run **:args", () => void seen.push("catch-all"))
+    .cmd("run :script", (ctx) => void seen.push(`script:${ctx.params.script}`))
+    .cmd("run build", () => void seen.push("build"));
 
-    await toCliHandler(host(cli))(["deploy", "staging"]);
-    expect(events).toEqual(["auth:before", "handler:staging", "auth:after"]);
-  });
+  await run(cli, ["run", "build"]);
+  await run(cli, ["run", "lint"]);
+  await run(cli, ["run", "a", "b"]);
 
-  test("registration order is execution order: use() after a command doesn't wrap that command", async () => {
-    const events: string[] = [];
-    const cli = new RhythmCli()
-      .command("greet", (ctx) => {
-        events.push("command");
-        ctx.response.print("hello");
-      })
-      .use(async (ctx, next) => {
-        events.push("late-middleware");
-        await next();
-      });
+  expect(seen).toEqual(["build", "script:lint", "catch-all"]);
+});
 
-    await collect(host(cli))(["greet"]);
-    expect(events).toEqual(["command"]);
-  });
+test("rou3 regex constraints work on params", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli().cmd("kill :pid(\\d+)", (ctx) => void seen.push(ctx.params.pid));
 
-  test("a derive middleware in the command's middleware slot types the handler", async () => {
-    const withUser = (() => {
-      const middleware: Middleware<RhythmCliContext> = async (ctx, next) => {
-        Object.assign(ctx, { user: "ada" });
-        await next();
-      };
-      return middleware as DeriveMiddleware<RhythmCliContext, { user: string }>;
-    })();
+  await run(cli, ["kill", "42"]);
+  const letters = await run(cli, ["kill", "abc"]);
 
-    const cli = new RhythmCli().command("greet :name", withUser, (ctx) => {
-      ctx.response.print(`${ctx.user} greets ${ctx.args.name}`);
-    });
+  expect(seen).toEqual(["42"]);
+  expect(letters.code).toBe(2);
+});
 
-    const result = await collect(host(cli))(["greet", "grace"]);
-    expect(result.stdout).toBe("ada greets grace");
-  });
+test("a command can have only one catch-all", () => {
+  expect(() => new RhythmCli().cmd("x **:a :b+", () => {})).toThrow("only one");
+});
 
-  test("a middleware between two commands wraps only the command registered after it", async () => {
-    const events: string[] = [];
-    const cli = new RhythmCli()
-      .command("early", () => {
-        events.push("early");
-      })
-      .use(async (ctx, next) => {
-        events.push("middleware");
-        await next();
-      })
-      .command("late", () => {
-        events.push("late");
-      });
-    const run = collect(host(cli));
-
-    await run(["early"]);
-    await run(["late"]);
-    expect(events).toEqual(["early", "middleware", "late"]);
-  });
-
-  test("each use() wraps only what follows it: stacked middleware accumulate across commands in order", async () => {
-    const events: string[] = [];
-    const mark =
-      (name: string): Middleware<RhythmCliContext> =>
-      async (_ctx, next) => {
-        events.push(name);
-        await next();
-      };
-    const cli = new RhythmCli()
-      .command("a", () => {})
-      .use(mark("m1"))
-      .command("b", () => {})
-      .use(mark("m2"))
-      .command("c", () => {});
-    const run = collect(host(cli));
-
-    for (const name of ["a", "b", "c"]) {
-      events.push(name);
-      await run([name]);
-    }
-
-    expect(events).toEqual(["a", "b", "m1", "c", "m1", "m2"]);
-  });
-
-  test("a cli is a controller, not a module: it exposes no register() or context", () => {
-    const cli = new RhythmCli();
-
-    expect("register" in cli).toBe(false);
-    expect("context" in cli).toBe(false);
-  });
-
-  describe("cli-level middleware is scoped to the cli's own commands", () => {
-    const guard: Middleware<RhythmCliContext> = (ctx) => {
-      ctx.response.printError("login required").exit(1);
-    };
-
-    test("a guard only runs when one of the cli's commands matches", async () => {
-      const cli = new RhythmCli().use(guard).command("deploy :environment", (ctx) => {
-        ctx.response.print("deployed");
-      });
-      const run = collect(host(cli));
-
-      expect((await run(["deploy", "prod"])).exitCode).toBe(1);
-
-      const other = await run(["help"]);
-      expect(other.stderr).toBe("");
-      expect(other.exitCode).toBe(0);
-    });
-
-    test("a middleware is scoped to commands registered after it", async () => {
-      const cli = new RhythmCli()
-        .command("open", (ctx) => {
-          ctx.response.print("open");
-        })
-        .use(guard)
-        .command("closed", (ctx) => {
-          ctx.response.print("closed");
-        });
-      const run = collect(host(cli));
-
-      expect((await run(["open"])).stdout).toBe("open");
-      expect((await run(["closed"])).exitCode).toBe(1);
-    });
-
-    test("a mounted child cli still runs without any command of its own", async () => {
-      const child = new RhythmCli({ prefix: "remote" }).command("add :name", (ctx) => {
-        ctx.response.print(`added ${ctx.args.name}`);
-      });
-      const run = collect(host(new RhythmCli().use(child.middleware())));
-
-      expect((await run(["remote", "add", "origin"])).stdout).toBe("added origin");
-    });
-
-    test("a derive used before commands does not leak into the type middleware() requires", () => {
-      const withUser = (() => {}) as unknown as DeriveMiddleware<RhythmCliContext, { user: string }>;
-      const mounted: Middleware<RhythmCliContext> = new RhythmCli().use(withUser).middleware();
-
-      expect(typeof mounted).toBe("function");
-    });
-  });
-
-  describe("prefix", () => {
-    test("commands are matched under the configured prefix, and not without it", async () => {
-      const cli = new RhythmCli({ prefix: "remote" }).command("add :name", (ctx) => {
-        ctx.response.print(ctx.args.name);
-      });
-      const run = collect(host(cli));
-
-      expect((await run(["remote", "add", "origin"])).stdout).toBe("origin");
-      expect((await run(["add", "origin"])).stdout).toBe("");
-    });
-
-    describe("middleware registered before mounted children", () => {
-      const tag =
-        (seen: string[], name: string): Middleware<any> =>
-        async (_ctx, next) => {
-          seen.push(name);
-          await next();
-        };
-
-      test("runs for each mounted child's commands", async () => {
-        const seen: string[] = [];
-        const build = new RhythmCli().command("build", (ctx) => {
-          ctx.response.print("build");
-        });
-        const lint = new RhythmCli().command("lint", (ctx) => {
-          ctx.response.print("lint");
-        });
-        const run = collect(
-          host(new RhythmCli().use(tag(seen, "auth")).use(build.middleware()).use(lint.middleware())),
-        );
-
-        expect((await run(["build"])).stdout).toBe("build");
-        expect((await run(["lint"])).stdout).toBe("lint");
-        expect(seen).toEqual(["auth", "auth"]);
-      });
-
-      test("covers nested children and respects prefixes", async () => {
-        const seen: string[] = [];
-        const deploy = new RhythmCli({ prefix: "cloud" }).command("deploy :env", (ctx) => {
-          ctx.response.print(ctx.args.env!);
-        });
-        const group = new RhythmCli().use(deploy.middleware());
-        const run = collect(host(new RhythmCli().use(tag(seen, "auth")).use(group.middleware())));
-
-        expect((await run(["cloud", "deploy", "prod"])).stdout).toBe("prod");
-        expect(seen).toEqual(["auth"]);
-      });
-
-      test("does not run when no command matches", async () => {
-        const seen: string[] = [];
-        const build = new RhythmCli().command("build", (ctx) => {
-          ctx.response.print("build");
-        });
-        const run = collect(host(new RhythmCli().use(tag(seen, "auth")).use(build.middleware())));
-
-        await run(["unknown"]);
-        await run(["build", "extra"]);
-        expect(seen).toEqual([]);
-      });
-
-      test("a child's own middleware stays scoped to the child's commands", async () => {
-        const seen: string[] = [];
-        const build = new RhythmCli().use(tag(seen, "build-guard")).command("build", (ctx) => {
-          ctx.response.print("build");
-        });
-        const lint = new RhythmCli().command("lint", (ctx) => {
-          ctx.response.print("lint");
-        });
-        const run = collect(host(new RhythmCli().use(build.middleware()).use(lint.middleware())));
-
-        await run(["lint"]);
-        expect(seen).toEqual([]);
-        await run(["build"]);
-        expect(seen).toEqual(["build-guard"]);
-      });
-
-      test("only counts commands registered after it, including its own sibling commands", async () => {
-        const seen: string[] = [];
-        const child = new RhythmCli().command("child", (ctx) => {
-          ctx.response.print("child");
-        });
-        const cli = new RhythmCli()
-          .command("early", (ctx) => {
-            ctx.response.print("early");
-          })
-          .use(tag(seen, "late"))
-          .use(child.middleware())
-          .command("own", (ctx) => {
-            ctx.response.print("own");
-          });
-        const run = collect(host(cli));
-
-        await run(["early"]);
-        expect(seen).toEqual([]);
-        await run(["child"]);
-        await run(["own"]);
-        expect(seen).toEqual(["late", "late"]);
-      });
-    });
-
-    test("a child cli mounted via use(child.middleware()) serves under its own prefix", async () => {
-      const remoteCli = new RhythmCli({ prefix: "remote" }).command("add :name", (ctx) => {
-        ctx.response.print(ctx.args.name);
-      });
-      const gitCli = new RhythmCli().use(remoteCli.middleware());
-      const run = collect(host(gitCli));
-
-      expect((await run(["remote", "add", "origin"])).stdout).toBe("origin");
-      expect((await run(["add", "origin"])).stdout).toBe("");
-    });
-
-    test("nesting is wiring only: a parent's prefix does not re-prefix a mounted child's commands", async () => {
-      const remoteCli = new RhythmCli({ prefix: "git remote" }).command("add :name", (ctx) => {
-        ctx.response.print(ctx.args.name);
-      });
-      const rootCli = new RhythmCli({ prefix: "vcs" }).use(remoteCli.middleware());
-      const run = collect(host(rootCli));
-
-      expect((await run(["git", "remote", "add", "origin"])).stdout).toBe("origin");
-      expect((await run(["vcs", "git", "remote", "add", "origin"])).stdout).toBe("");
-    });
-  });
-
-  describe("middleware(), mounted via a parent's use() (koa-style)", () => {
-    test("a matched command short-circuits the parent app's downstream middleware", async () => {
-      const cli = new RhythmCli().command("greet", (ctx) => {
-        ctx.response.print("hello");
-      });
-
-      const app = new Rhythm<RhythmCliContext>().use(cli.middleware()).use((ctx) => {
-        ctx.response.exit(1).print("fallback");
-      });
-      const run = collect(app);
-
-      const result = await run(["greet"]);
-      expect(result.stdout).toBe("hello");
-      expect(result.exitCode).toBe(0);
-    });
-
-    test("an unmatched command falls through to the parent app's downstream middleware", async () => {
-      const cli = new RhythmCli().command("greet", (ctx) => {
-        ctx.response.print("hello");
-      });
-
-      const app = new Rhythm<RhythmCliContext>().use(cli.middleware()).use((ctx) => {
-        ctx.response.exit(1).print("command not found");
-      });
-      const run = collect(app);
-
-      const result = await run(["unknown"]);
-      expect(result.stdout).toBe("command not found");
-      expect(result.exitCode).toBe(1);
-    });
+test("catch-all params are typed as string arrays", () => {
+  new RhythmCli().cmd("echo **:words", (ctx) => {
+    // @ts-expect-error
+    const word: string = ctx.params.words;
+    return word;
   });
 });
 
-describe("RhythmCli#use(fn, condition)", () => {
-  test("runs the middleware only when the predicate AND a later command match", async () => {
-    const seen: string[] = [];
-    const cli = new RhythmCli()
-      .use(
-        async (ctx, next) => {
-          seen.push(ctx.argv.join(" "));
-          await next();
-        },
-        (ctx) => ctx.flags.verbose === true,
-      )
-      .command("deploy", (ctx) => {
-        ctx.response.print("deployed");
-      });
-    const app = new Rhythm<RhythmCliContext>().use(cli.middleware());
-
-    const run = async (argv: string[], flags: Record<string, string | boolean>) => {
-      const ctx = await app.run({ argv, flags, stdin: null, response: new RhythmCliResponse() });
-      return ctx.response.stdout.join("\n");
-    };
-
-    expect(await run(["deploy"], { verbose: true })).toBe("deployed");
-    expect(await run(["deploy"], {})).toBe("deployed");
-    expect(await run(["unknown"], { verbose: true })).toBe("");
-    expect(seen).toEqual(["deploy"]);
+test("words with spaces, slashes and percent signs arrive intact", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli().cmd("open :target", (ctx) => {
+    seen.push(ctx.params.target);
   });
 
-  test("rejects a non-function predicate", () => {
-    expect(() => new RhythmCli().use(() => {}, "x" as any)).toThrow("condition must be a function!");
+  await run(cli, ["open", "my notes/todo 100%.txt"]);
+
+  expect(seen).toEqual(["my notes/todo 100%.txt"]);
+});
+
+test("flags end routing and stay available on ctx.argv", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli()
+    .cmd("serve :entry", (ctx) => void seen.push(`entry:${ctx.params.entry}`, ctx.argv))
+    .cmd("serve", () => void seen.push("bare serve"));
+
+  await run(cli, ["serve", "app.ts", "--port", "8080"]);
+  await run(cli, ["serve", "--port", "8080", "app.ts"]);
+
+  expect(seen).toEqual(["entry:app.ts", ["serve", "app.ts", "--port", "8080"], "bare serve"]);
+});
+
+test("command handlers form a middleware chain", async () => {
+  const calls: string[] = [];
+  const cli = new RhythmCli().cmd(
+    "x",
+    async (_ctx, next) => {
+      calls.push("first in");
+      await next();
+      calls.push("first out");
+    },
+    (_ctx, next) => {
+      calls.push("second");
+      return next();
+    },
+    () => void calls.push("last"),
+  );
+
+  await run(cli, ["x"]);
+
+  expect(calls).toEqual(["first in", "second", "last", "first out"]);
+});
+
+test("a command middleware can stop the chain with fail()", async () => {
+  const calls: string[] = [];
+  const cli = new RhythmCli().cmd(
+    "deploy",
+    (ctx) => ctx.fail("not logged in", 3),
+    () => void calls.push("deployed"),
+  );
+
+  const result = await run(cli, ["deploy"]);
+
+  expect(result.code).toBe(3);
+  expect(result.stderr).toBe("error: not logged in\n");
+  expect(calls).toEqual([]);
+});
+
+test("use middleware runs only when a command matches", async () => {
+  const calls: string[] = [];
+  const cli = new RhythmCli()
+    .use(async (_ctx, next) => {
+      calls.push("in");
+      await next();
+      calls.push("out");
+    })
+    .cmd("serve", () => void calls.push("serve"));
+
+  await run(cli, ["serve"]);
+  expect(calls).toEqual(["in", "serve", "out"]);
+
+  calls.length = 0;
+  for (const argv of [[], ["nope"], ["--help"], ["servee"]]) {
+    await run(cli, argv);
+  }
+  expect(calls).toEqual([]);
+});
+
+test("use middleware wraps every command and can read the matched params", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli()
+    .cmd("a :id", () => {})
+    .use((ctx, next) => {
+      seen.push(ctx.params);
+      return next();
+    })
+    .cmd("b", () => {});
+
+  await run(cli, ["a", "1"]);
+  await run(cli, ["b"]);
+
+  expect(seen).toEqual([{ id: "1" }, {}]);
+});
+
+test("a use middleware that skips next() blocks the command", async () => {
+  const calls: string[] = [];
+  const cli = new RhythmCli().use((ctx) => ctx.fail("blocked", 4)).cmd("serve", () => void calls.push("serve"));
+
+  const result = await run(cli, ["serve"]);
+
+  expect(result.code).toBe(4);
+  expect(calls).toEqual([]);
+});
+
+test("use with derive widens the context for command handlers", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli().use(derive(() => ({ user: "ada" }))).cmd("whoami", (ctx) => {
+    const user: string = ctx.user;
+    seen.push(user);
   });
+
+  await run(cli, ["whoami"]);
+
+  expect(seen).toEqual(["ada"]);
+});
+
+test("an unmatched command is reported by the adapter with exit code 2", async () => {
+  const calls: string[] = [];
+  const cli = new RhythmCli().cmd("serve", () => void calls.push("serve"));
+
+  const unknown = await run(cli, ["nope"]);
+  const none = await run(cli, []);
+  const flag = await run(cli, ["--help"]);
+
+  expect(calls).toEqual([]);
+  expect(unknown.code).toBe(2);
+  expect(unknown.stderr).toBe("error: unknown command 'nope'\n");
+  expect(none.code).toBe(2);
+  expect(none.stderr).toBe("error: no command given\n");
+  expect(flag.stderr).toBe("error: unknown command '--help'\n");
+});
+
+test("context helpers: log, error, fail and exitCode", async () => {
+  const cli = new RhythmCli()
+    .cmd("say", (ctx) => {
+      ctx.log("hello", { a: 1 }, 42);
+      ctx.error("careful");
+    })
+    .cmd("boom", (ctx) => ctx.fail("it broke"))
+    .cmd("code", (ctx) => {
+      ctx.exitCode = 7;
+    });
+
+  const say = await run(cli, ["say"]);
+  const boom = await run(cli, ["boom"]);
+  const code = await run(cli, ["code"]);
+
+  expect(say.stdout).toBe("hello { a: 1 } 42\n");
+  expect(say.stderr).toBe("careful\n");
+  expect(say.code).toBe(0);
+  expect(boom.code).toBe(1);
+  expect(boom.stderr).toBe("error: it broke\n");
+  expect(code.code).toBe(7);
+});
+
+test("a thrown error becomes an error line and exit code 1", async () => {
+  const cli = new RhythmCli().cmd("boom", () => {
+    throw new Error("kaboom");
+  });
+
+  const result = await run(cli, ["boom"]);
+
+  expect(result.code).toBe(1);
+  expect(result.stderr).toBe("error: kaboom\n");
+});
+
+test("an error-boundary middleware can handle failures itself", async () => {
+  const cli = new RhythmCli()
+    .use(async (ctx, next) => {
+      try {
+        await next();
+      } catch (error) {
+        ctx.fail(`handled: ${(error as Error).message}`, 9);
+      }
+    })
+    .cmd("boom", () => {
+      throw new Error("kaboom");
+    });
+
+  const result = await run(cli, ["boom"]);
+
+  expect(result.code).toBe(9);
+  expect(result.stderr).toBe("error: handled: kaboom\n");
+});
+
+test("async handlers are awaited before the exit code is read", async () => {
+  const cli = new RhythmCli().cmd("slow", async (ctx) => {
+    await Bun.sleep(10);
+    ctx.exitCode = 4;
+  });
+
+  expect((await run(cli, ["slow"])).code).toBe(4);
+});
+
+test("option parsing lives in a middleware, not in the cli", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli()
+    .use(
+      derive((ctx) => ({
+        options: parseArgs({
+          args: ctx.argv,
+          options: { port: { type: "string", short: "p", default: "3000" } },
+          allowPositionals: true,
+        }).values,
+      })),
+    )
+    .cmd("serve :entry", (ctx) => void seen.push(ctx.params.entry, ctx.options.port));
+
+  await run(cli, ["serve", "app.ts"]);
+  await run(cli, ["serve", "app.ts", "-p", "8080"]);
+
+  expect(seen).toEqual(["app.ts", "3000", "app.ts", "8080"]);
+});
+
+test("help lives in a middleware too", async () => {
+  const calls: string[] = [];
+  const cli = new RhythmCli()
+    .use((ctx, next) => {
+      if (ctx.argv.includes("--help")) {
+        ctx.log(`usage: rhythm ${ctx.argv[0]}`);
+        return;
+      }
+      return next();
+    })
+    .cmd("serve", () => void calls.push("serve"));
+
+  const help = await run(cli, ["serve", "--help"]);
+  const plain = await run(cli, ["serve"]);
+
+  expect(help.stdout).toBe("usage: rhythm serve\n");
+  expect(calls).toEqual(["serve"]);
+  expect(plain.code).toBe(0);
+});
+
+test("a cli can be mounted inside a Rhythm app", async () => {
+  const cli = new RhythmCli().cmd("ping", (ctx) => {
+    ctx.log("pong");
+    ctx.fail("nope", 5);
+  });
+  const app = new Rhythm().register(decorate(() => ({ appName: "wrapped" }))).use(mount(cli));
+
+  const ok = await run(app, ["ping"]);
+  const unknown = await run(app, ["nope"]);
+
+  expect(ok.stdout).toBe("pong\n");
+  expect(ok.code).toBe(5);
+  expect(unknown.code).toBe(2);
+  expect(unknown.stderr).toBe("error: unknown command 'nope'\n");
+});
+
+test("derive as the first command handler widens the ctx type for the handlers after it", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli().cmd(
+    "whoami",
+    derive(() => ({ user: "ada", visits: 3 })),
+    (ctx) => {
+      const user: string = ctx.user;
+      const visits: number = ctx.visits;
+      seen.push(user, visits);
+    },
+  );
+
+  await run(cli, ["whoami"]);
+
+  expect(seen).toEqual(["ada", 3]);
+});
+
+test("derived command values are precisely typed, not any", () => {
+  new RhythmCli().cmd(
+    "whoami",
+    derive(() => ({ user: "ada" })),
+    (ctx) => {
+      // @ts-expect-error
+      const wrong: number = ctx.user;
+      return wrong;
+    },
+  );
+});
+
+test("a command derive can read params", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli().cmd(
+    "deploy :env",
+    derive((ctx) => ({ url: `https://${ctx.params.env}.example.com` })),
+    (ctx) => {
+      const url: string = ctx.url;
+      seen.push(url);
+    },
+  );
+
+  await run(cli, ["deploy", "staging"]);
+
+  expect(seen).toEqual(["https://staging.example.com"]);
+});
+
+test("an async command derive is awaited and typed by its resolved value", async () => {
+  const seen: unknown[] = [];
+  const cli = new RhythmCli().cmd(
+    "x",
+    derive(async () => ({ token: await Promise.resolve("abc") })),
+    (ctx) => {
+      const token: string = ctx.token;
+      seen.push(token);
+    },
+  );
+
+  await run(cli, ["x"]);
+
+  expect(seen).toEqual(["abc"]);
+});
+
+test("command derive works with further middleware, and only for its own command", async () => {
+  const calls: string[] = [];
+  const cli = new RhythmCli()
+    .cmd(
+      "a",
+      derive(() => ({ n: 1 })),
+      (_ctx, next) => {
+        calls.push("mw");
+        return next();
+      },
+      (ctx) => void calls.push(`a:${ctx.n}`),
+    )
+    // @ts-expect-error `n` is only derived for command a
+    .cmd("b", (ctx) => void calls.push(`b:${ctx.n}`));
+
+  await run(cli, ["a"]);
+  await run(cli, ["b"]);
+
+  expect(calls).toEqual(["mw", "a:1", "b:undefined"]);
+});
+
+test("RhythmCli is a Pipeline", () => {
+  expect(new RhythmCli()).toBeInstanceOf(Pipeline);
+});
+
+test("createCliContext writes through the injected streams", () => {
+  const h = harness();
+  const ctx = createCliContext(["a"], h.io);
+
+  ctx.log("out");
+  ctx.error("err");
+
+  expect(ctx.argv).toEqual(["a"]);
+  expect(h.stdout()).toBe("out\n");
+  expect(h.stderr()).toBe("err\n");
 });

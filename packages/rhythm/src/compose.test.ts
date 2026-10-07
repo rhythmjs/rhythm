@@ -1,128 +1,54 @@
 import { describe, expect, test } from "bun:test";
 import { compose } from "./compose";
-import type { NextFn } from "./types";
 
 describe("compose()", () => {
-  test("rejects a non-array stack and non-function middleware eagerly, at compose time", () => {
-    expect(() => compose(undefined as any)).toThrow("Middleware stack must be an array!");
-    expect(() => compose([undefined as any])).toThrow("Middleware must be composed of functions!");
+  test("runs middleware onion-style", async () => {
+    const log: string[] = [];
+    const run = compose<object>([
+      async (_, next) => {
+        log.push("a:before");
+        await next();
+        log.push("a:after");
+      },
+      async (_, next) => {
+        log.push("b:before");
+        await next();
+        log.push("b:after");
+      },
+    ]);
+    await run({});
+    expect(log).toEqual(["a:before", "b:before", "b:after", "a:after"]);
   });
 
-  test("an empty stack resolves with the same context object, unchanged", async () => {
-    const ctx = { a: 1 };
-    const result = await compose<{ a: number }>([])(ctx);
-    expect(result).toBe(ctx);
-    expect(result).toEqual({ a: 1 });
+  test("a middleware that skips next() stops the chain", async () => {
+    const log: string[] = [];
+    await compose<object>([() => void log.push("a"), () => void log.push("b")])({});
+    expect(log).toEqual(["a"]);
   });
 
-  test("runs middleware in onion order around next()", async () => {
-    const order: string[] = [];
-    const fn = compose<{}>([
-      async (ctx, next) => {
-        order.push("a:before");
+  test("calls the outer next after the last middleware", async () => {
+    const log: string[] = [];
+    await compose<object>([(_, next) => next()])({}, async () => void log.push("outer"));
+    expect(log).toEqual(["outer"]);
+  });
+
+  test("rejects when next() is called twice", async () => {
+    const run = compose<object>([
+      async (_, next) => {
         await next();
-        order.push("a:after");
-      },
-      async (ctx, next) => {
-        order.push("b:before");
         await next();
-        order.push("b:after");
       },
+      () => {},
+    ]);
+    await expect(run({})).rejects.toThrow("next() called multiple times");
+  });
+
+  test("propagates errors", async () => {
+    const run = compose<object>([
       () => {
-        order.push("c");
+        throw new Error("boom");
       },
     ]);
-
-    await fn({});
-    expect(order).toEqual(["a:before", "b:before", "c", "b:after", "a:after"]);
-  });
-
-  test("next() takes no arguments: every middleware shares the same context object", async () => {
-    const fn = compose<{ seen: string[] }>([
-      async (ctx, next) => {
-        const downstream = await next();
-        expect(downstream).toBe(ctx);
-      },
-      (ctx) => {
-        ctx.seen.push("b");
-      },
-    ]);
-
-    const ctx = { seen: ["a"] };
-    const result = await fn(ctx);
-    expect(result).toBe(ctx);
-    expect(ctx.seen).toEqual(["a", "b"]);
-  });
-
-  test("not calling next() short-circuits the rest of the stack", async () => {
-    const order: string[] = [];
-    const fn = compose<{}>([
-      () => {
-        order.push("first");
-      },
-      () => {
-        order.push("unreached");
-      },
-    ]);
-
-    await fn({});
-    expect(order).toEqual(["first"]);
-  });
-
-  test("calling next() twice rejects", async () => {
-    const fn = compose<{}>([
-      async (ctx, next) => {
-        await next();
-        await next();
-      },
-    ]);
-
-    await expect(fn({})).rejects.toThrow("next() called multiple times");
-  });
-
-  test("a synchronous throw becomes a rejection, same as an async one", async () => {
-    const sync = compose<{}>([
-      () => {
-        throw new Error("sync boom");
-      },
-    ]);
-    const async_ = compose<{}>([
-      async () => {
-        throw new Error("async boom");
-      },
-    ]);
-
-    await expect(sync({})).rejects.toThrow("sync boom");
-    await expect(async_({})).rejects.toThrow("async boom");
-  });
-
-  test("the outer next runs when the stack is exhausted, enabling mounting", async () => {
-    const order: string[] = [];
-    const fn = compose<{}>([
-      async (ctx, next) => {
-        order.push("inner:before");
-        await next();
-        order.push("inner:after");
-      },
-    ]);
-
-    const outer = (async () => {
-      order.push("outer");
-      return {};
-    }) as NextFn<{}>;
-
-    await fn({}, outer);
-    expect(order).toEqual(["inner:before", "outer", "inner:after"]);
-  });
-
-  test("without an outer next the exhausted stack just resolves", async () => {
-    const fn = compose<{ a: number }>([
-      async (ctx, next) => {
-        await next();
-      },
-    ]);
-
-    const result = await fn({ a: 1 });
-    expect(result).toEqual({ a: 1 });
+    await expect(run({})).rejects.toThrow("boom");
   });
 });

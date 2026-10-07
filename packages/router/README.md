@@ -1,48 +1,56 @@
 # @rhythmjs/router
 
-The HTTP layer of Rhythm, the Bun-native backend framework: web-standard (`Request`/`Response`) routing on top of the `@rhythmjs/rhythm` kernel, served on `Bun.serve`. `RhythmRouter` matches routes with [rou3](https://github.com/h3js/rou3), the router that powers h3 (a static segment always wins over a `:param` segment, regardless of registration order), supports prefixes and nested routers, and mounts flat into a parent `Rhythm` app via `.use(router.middleware())`, so an unmatched request correctly falls through to whatever's registered after it.
+The HTTP layer of Rhythm, the Bun-native backend framework: web-standard (`Request`/`Response`) routing on top of the `@rhythmjs/rhythm` kernel, served on `Bun.serve`. `RhythmRouter` matches routes with [rou3](https://github.com/h3js/rou3), the router that powers h3 (a static segment always wins over a `:param` segment, regardless of registration order).
 
-Route patterns follow rou3's conventions: `:name` params (`:name?` optional, `:id(\\d+)` regex-constrained), `*` for one unnamed segment (captured as `params["0"]`), and `**` for the rest of the path (`params._`, or `params.name` with `**:name`). Param values are the raw path segments, undecoded.
+Route patterns follow rou3's conventions: `:name` params (`:name?` optional, `:id(\\d+)` regex-constrained), `*` for one unnamed segment (captured as `params["0"]`), and `**` for the rest of the path (`params._`, or `params.name` with `**:name`). Param values are URI-decoded; a malformed escape does not match.
 
-`RhythmRouter` is not an app and does not extend `Rhythm`; it is a controller that compiles routes and middleware down to a single middleware (`.middleware()`). It shares the core middleware contract (`compose`, `Middleware`, `derive`; `next()` takes no arguments, extend the context with `derive()`), but has no startup `context` or `register()`, and it can't be served on its own: a `Rhythm` app is always the host that owns the lifecycle and the adapters.
+`RhythmRouter` is a `Pipeline`, like `Rhythm`: it has request-time `use()` middleware and routes, but no startup phase. Startup work (`register`, `decorate`, `include`) belongs to the `Rhythm` app that mounts it with `mount(router)`.
 
 ## Example
 
 ```ts
-import { Rhythm } from "@rhythmjs/rhythm";
+import { Rhythm, decorate, derive, mount } from "@rhythmjs/rhythm";
 import { RhythmRouter } from "@rhythmjs/router";
 import { toFetchHandler } from "@rhythmjs/router/fetch";
-import type { RhythmHttpContext } from "@rhythmjs/router/context";
 
-const usersRouter = new RhythmRouter({ prefix: "/users" }).get("/:id", (ctx) => {
-  ctx.json({ id: ctx.params.id });
-});
+const users = new RhythmRouter({ name: "users" })
+  .get("/users/:id", (ctx) => ctx.json({ id: ctx.params.id }))
+  .post(
+    "/users",
+    derive(async (ctx) => ({ body: await ctx.request.json() })),
+    (ctx) => ctx.json(ctx.body, 201),
+  );
 
-const app = new Rhythm<RhythmHttpContext>().use(usersRouter.middleware());
+const app = new Rhythm()
+  .register(decorate(() => ({ startedAt: Date.now() })))
+  .use(derive(() => ({ requestId: crypto.randomUUID() })))
+  .use(mount(users));
+
 Bun.serve({ port: 3000, fetch: toFetchHandler(app) });
 ```
 
-A fuller runnable version, including nested prefixes and a fallback route, is at [`examples/router`](../../examples/router).
-
 ## Concepts
 
-- **`ctx.response`** is a plain mutable object (`status`, `statusText`, `headers`, `body`): set it directly rather than constructing a `Response` yourself. The adapter converts it to a real `Response` at the end.
-- **Response helpers**: `ctx.json(data, status?)`, `ctx.text(body, status?)`, `ctx.html(body, status?)`, `ctx.error(status, message?)`, and `ctx.redirect(url, status = 302)` (status must be 301, 302, 303, 307 or 308; the URL is used as given, so never pass a user-supplied `next`/`returnTo` value without checking it against an allowlist or requiring a same-origin path) set the content type, body, and status on `ctx.response` in one call. `error()` defaults the message from the status code (`ctx.error(404)` → `"Not Found"`). They're sugar over `ctx.response`, so mixing both styles is fine, and later writes win.
-- **`ctx.params`**: captured `:name` path segments, added once a route matches.
-- **Nesting is `.use(child.middleware())`**: a router mounts into another router (or into the app) as a compiled middleware. The mount is opaque, so the parent's prefix is **not** applied to the child's routes: the child carries its own absolute prefix (`new RhythmRouter({ prefix: "/api/users" })`). On a miss the child falls through to `next()`, so the parent's later middleware and routes still run, and the child keeps working standalone.
-- **Registration order is execution order**: a `.use()` middleware wraps only the routes registered after it, and runs only when one of them matches the request's method and path (so a guard in a `/projects` router never answers `/docs`); a mounted router (`.use(child.middleware())`) always runs; routes registered before it are untouched, and a matched route that doesn't call `next()` returns without reaching anything registered later. Consecutive routes share one rou3 lookup; an unmatched request falls through, entry by entry, to the outer `next()`.
-- **Conditional middleware**: `.use(fn, condition)` also needs `condition(ctx)` to return true (sync or async); the second callback only narrows, so a middleware registered after every route still never runs. `@rhythmjs/router/match` provides ready-made predicates: `matches("/api/**")` (patterns, `exclude`, `methods`) and `routed(module)` (true only for requests the module's own routers serve), e.g. `app.use(audit(), routed(usersModule))`.
-- **A router is a controller, not a module**: it has no startup `context` or `register()`, and it cannot be `register()`ed into a `Rhythm` app either; `register()` composes `Rhythm` modules only. A router mounts into an app exactly one way: koa-style, via `.use(router.middleware())`.
+- **Mounting.** A router mounts into a `Rhythm` app (or into another router) with `mount(router)`. After the router handles a request, the parent continues with `next()`, so later middleware still runs; check `ctx.params` or the response state if it should only act on unmatched requests. Give each router its full paths (there is no prefix option); to mount conditionally pass a second argument: `mount(router, (ctx) => ...)`.
+- **Request-time only.** `router.use(middleware)` wraps the router's routes and runs only when one of them matches the method and path, so a guard in one router never answers another's requests. Startup values live on the parent app's context and are on every request.
+- **`derive` as a route handler.** `derive(fn)` can be the first handler of a route (or `use()`), and widens the context type for the handlers after it.
+- **`ctx.response`** is a plain mutable object (`status`, `statusText`, `headers`, `body`): set it directly rather than constructing a `Response` yourself. `toFetchHandler` converts it to a real `Response` at the end, and answers `404` if nothing touched it.
+- **Response helpers**: `ctx.json(data, status?)`, `ctx.text(body, status?)`, `ctx.html(body, status?)`, `ctx.error(status, message?)`, and `ctx.redirect(url, status = 302)` (status must be 301, 302, 303, 307 or 308; the URL is used as given, so never pass a user-supplied `next`/`returnTo` value without checking it against an allowlist or requiring a same-origin path) set the content type, body, and status on `ctx.response` in one call. `error()` defaults the message from the status code (`ctx.error(404)` is `"Not Found"`). They're sugar over `ctx.response`, so mixing both styles is fine, and later writes win.
+- **`ctx.params`**: captured path params, typed from the path: `/users/:id` gives `params.id: string`, `:id?` is `string | undefined`, and reading a name that is not in the path is a compile error. In `use()` middleware, params are an untyped `Record<string, string>`, since several routes may match.
+- **Strict context.** Like `Rhythm`, the route context only has what was added: `ctx.nope` is a compile error, and `derive()` (router-level or as a route's first handler) is how you widen it. A route-level `derive` only affects that route.
+- **Apps and the fetch handler.** Inside an app's own middleware, `ctx.request`/`ctx.response` are typed only if the app declares them as input: `new Rhythm<{}, RhythmHttpContext>()`. `toFetchHandler(app)` rejects, at compile time, an app that requires any other input.
+- **Errors.** A route that throws makes the handler reject; mounted plugins wrap failures as `mounted router "name" failed` with the original as `cause`. `errorToResponse` looks through the `cause` chain for a declared status.
 
 ## API
 
-- `new RhythmRouter(options?)`: `options.prefix`.
-- `.get/.post/.put/.patch/.delete(path, ...handlers)`: register a route; `path` may contain `:param` segments.
-- `.use(fn)`: plain middleware; it takes only functions, so a nested router mounts as `.use(child.middleware())`.
-- `.middleware()`: this router compiled to a plain middleware: the one form that mounts anywhere, into a `Rhythm` app or into another router. Because the compiled form is opaque, the mounting router's prefix is not applied to it, so give the child its full prefix.
-- `.entries`: a read-only snapshot of registered middlewares and routes, in order. `.middleware()` is tagged with the router as its source, so a parent module lists it in `sources`.
-- `ctx.json/.text/.html(body, status?)`, `ctx.error(status, message?)`, `ctx.redirect(url, status?)`: response helpers built into the context (`createHttpContext` in `@rhythmjs/router/context`).
-- `toFetchHandler(app)`: bridges a `Rhythm` app to a Web-standard `(Request) => Promise<Response>` handler.
+- `new RhythmRouter<I, D>(options?)`: `I` is context the router needs from the parent (checked by `mount()`), `D` is what its own `derive()` calls add; both are usually inferred. `options.name` labels failures (`type` defaults to `"router"`).
+- `.get/.post/.put/.patch/.delete(path, ...handlers)`: register a route; handlers are `(ctx, next)` middleware, and the first may be `derive()`.
+- `.use(middleware)`: router-level middleware; `derive()` extends the context type.
+- `.callback()`: the router as a `(ctx) => Promise<ctx>` function, used by `mount()` and `toFetchHandler()`.
+- `.sources` / `.parent` / `.options`: inherited from `Pipeline`.
+- `createHttpContext(request)` / `toResponse(response)` (`@rhythmjs/router/context`): the request context and its conversion to a `Response`.
+- `toFetchHandler(app)` (`@rhythmjs/router/fetch`): bridges a `Rhythm` app (or router) to a Web-standard `(Request) => Promise<Response>` handler. Errors reject.
+- `errorToResponse(error)` (`@rhythmjs/router/fetch`): maps a thrown error to a `Response`.
 
 ## Serving: your Bun.serve, no wrapper
 

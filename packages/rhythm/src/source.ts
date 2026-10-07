@@ -1,8 +1,6 @@
-import type { Middleware } from "./types";
-
 const SOURCE = "~source";
 
-export function withSource<TFn extends Middleware<any>>(fn: TFn, source: object): TFn {
+export function withSource<F extends (...args: any[]) => unknown>(fn: F, source: object): F {
   Object.defineProperty(fn, SOURCE, { value: source });
   return fn;
 }

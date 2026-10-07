@@ -1,3 +1,5 @@
+import type { ExtensionMiddleware, Next } from "@rhythmjs/rhythm";
+
 export interface RhythmPrompt {
   text(message: string, options?: { default?: string }): Promise<string>;
   confirm(message: string, options?: { default?: boolean }): Promise<boolean>;
@@ -88,4 +90,37 @@ export function createPrompt(io: RhythmPromptIO): { prompt: RhythmPrompt; close:
   };
 
   return { prompt: { text, confirm, select, multiSelect }, close: () => io.close?.() };
+}
+
+export function createStdioPromptIO(): RhythmPromptIO {
+  let lines: AsyncIterator<string> | undefined;
+  return {
+    ask: async (query) => {
+      process.stdout.write(query);
+      lines ??= console[Symbol.asyncIterator]();
+      const { value } = await lines.next();
+      return value ?? "";
+    },
+    write: (text) => {
+      process.stdout.write(text);
+    },
+    close: () => {
+      void lines?.return?.();
+    },
+  };
+}
+
+export function withPrompt(
+  createIO: () => RhythmPromptIO = createStdioPromptIO,
+): ExtensionMiddleware<{}, { prompt: RhythmPrompt }> {
+  const middleware = async (ctx: { prompt?: RhythmPrompt }, next: Next) => {
+    const { prompt, close } = createPrompt(createIO());
+    ctx.prompt = prompt;
+    try {
+      await next();
+    } finally {
+      close();
+    }
+  };
+  return middleware as ExtensionMiddleware<{}, { prompt: RhythmPrompt }>;
 }

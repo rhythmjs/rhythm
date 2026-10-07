@@ -1,616 +1,503 @@
-import { describe, expect, test } from "bun:test";
-import { Rhythm } from "@rhythmjs/rhythm";
-import { compose } from "@rhythmjs/rhythm/compose";
-import type { DeriveMiddleware, Middleware } from "@rhythmjs/rhythm/types";
-import { toFetchHandler } from "./fetch";
-import type { RhythmHttpContext } from "./context";
+import { test, expect } from "bun:test";
+import { Pipeline, Rhythm, decorate, derive, mount } from "@rhythmjs/rhythm";
 import { RhythmRouter } from "./rhythm-router";
+import { createHttpContext, type RhythmHttpContext } from "./context";
 
-const serve = (router: RhythmRouter<any>) => toFetchHandler(new Rhythm<RhythmHttpContext>().use(router.middleware()));
+type Dyn = Record<string, any>;
 
-describe("RhythmRouter", () => {
-  test("matches method + path and extracts named params", async () => {
-    const router = new RhythmRouter().get("/users/:id", (ctx) => {
-      ctx.response.body = `user ${ctx.params.id}`;
+async function call(
+  router: { callback(): (ctx: any) => Promise<unknown> },
+  method: string,
+  path: string,
+  extra: Record<string, any> = {},
+) {
+  const req = new Request(`http://localhost${path}`, { method });
+  const ctx: Record<string, any> = Object.assign(createHttpContext(req), extra);
+  await router.callback()(ctx);
+  return ctx;
+}
+
+test("each method helper matches only its own HTTP method", async () => {
+  const router = new RhythmRouter()
+    .get("/thing", (ctx) => ctx.text("get"))
+    .post("/thing", (ctx) => ctx.text("post"))
+    .put("/thing", (ctx) => ctx.text("put"))
+    .patch("/thing", (ctx) => ctx.text("patch"))
+    .delete("/thing", (ctx) => ctx.text("delete"));
+
+  for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"]) {
+    const ctx = await call(router, method, "/thing");
+    expect(ctx.response.body).toBe(method.toLowerCase());
+  }
+});
+
+test("an unknown method or path leaves the response untouched", async () => {
+  const router = new RhythmRouter().get("/thing", (ctx) => {
+    ctx.text("ok");
+  });
+
+  const wrongMethod = await call(router, "POST", "/thing");
+  const wrongPath = await call(router, "GET", "/other");
+
+  for (const ctx of [wrongMethod, wrongPath]) {
+    expect(ctx.response.status).toBe(200);
+    expect(ctx.response.body).toBeNull();
+    expect([...ctx.response.headers]).toEqual([]);
+  }
+});
+
+test("path params are parsed, decoded and typed", async () => {
+  const seen: unknown[] = [];
+  const router = new RhythmRouter().get("/orgs/:org/users/:id", (ctx) => {
+    const org: string = ctx.params.org;
+    const id: string = ctx.params.id;
+    seen.push(org, id);
+  });
+
+  await call(router, "GET", "/orgs/acme%20inc/users/42");
+
+  expect(seen).toEqual(["acme inc", "42"]);
+});
+
+test("a malformed percent-encoded param does not match", async () => {
+  const router = new RhythmRouter().get("/users/:id", (ctx) => {
+    ctx.text("ok");
+  });
+
+  const ctx = await call(router, "GET", "/users/%E0%A4%A");
+
+  expect(ctx.response.body).toBeNull();
+});
+
+test("trailing slashes are ignored and segment counts must match", async () => {
+  const router = new RhythmRouter()
+    .get("/users", (ctx) => ctx.text("list"))
+    .get("/users/:id", (ctx) => ctx.text("one"));
+
+  const withSlash = await call(router, "GET", "/users/");
+  const tooLong = await call(router, "GET", "/users/1/extra");
+
+  expect(withSlash.response.body).toBe("list");
+  expect(tooLong.response.body).toBeNull();
+});
+
+test("handlers respond through the ctx helpers and real response values", async () => {
+  const router = new RhythmRouter().post("/things", (ctx) => {
+    ctx.response.headers.set("x-thing-id", "7");
+    ctx.json({ id: 7 }, 201);
+  });
+
+  const ctx = await call(router, "POST", "/things");
+
+  expect(ctx.response.status).toBe(201);
+  expect(ctx.response.headers.get("x-thing-id")).toBe("7");
+  expect(ctx.response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+  expect(ctx.response.body).toBe('{"id":7}');
+});
+
+test("a handler's return value is ignored", async () => {
+  const router = new RhythmRouter().get("/x", () => ({ ignored: true }));
+
+  const ctx = await call(router, "GET", "/x");
+
+  expect(ctx.response.body).toBeNull();
+});
+
+test("async handlers are awaited", async () => {
+  const router = new RhythmRouter().get("/slow", async (ctx) => {
+    await Bun.sleep(10);
+    ctx.json({ done: true });
+  });
+
+  const ctx = await call(router, "GET", "/slow");
+
+  expect(ctx.response.body).toBe('{"done":true}');
+});
+
+test("the most specific route wins, whatever the registration order", async () => {
+  const calls: string[] = [];
+  const router = new RhythmRouter()
+    .get("/users/:id", () => void calls.push("param route"))
+    .get("/users/me", () => void calls.push("literal route"));
+
+  await call(router, "GET", "/users/me");
+  await call(router, "GET", "/users/42");
+
+  expect(calls).toEqual(["literal route", "param route"]);
+});
+
+test("use middleware wraps every route of this router, wherever it was added", async () => {
+  const calls: string[] = [];
+  const router = new RhythmRouter()
+    .get("/x", () => void calls.push("route x"))
+    .use(async (_ctx, next) => {
+      calls.push("in");
+      await next();
+      calls.push("out");
+    })
+    .get("/y", () => void calls.push("route y"));
+
+  await call(router, "GET", "/x");
+  await call(router, "GET", "/y");
+
+  expect(calls).toEqual(["in", "route x", "out", "in", "route y", "out"]);
+});
+
+test("use middleware does not run when no route of this router matches", async () => {
+  const calls: string[] = [];
+  const router = new RhythmRouter()
+    .use(async (_ctx, next) => {
+      calls.push("middleware");
+      await next();
+    })
+    .get("/x", () => void calls.push("route"));
+
+  await call(router, "GET", "/missing");
+  await call(router, "POST", "/x");
+  await call(router, "GET", "/x/extra");
+
+  expect(calls).toEqual([]);
+});
+
+test("use middleware can read the matched params", async () => {
+  const seen: unknown[] = [];
+  const router = new RhythmRouter()
+    .use(async (ctx, next) => {
+      seen.push(ctx.params.id);
+      await next();
+    })
+    .get("/users/:id", () => {});
+
+  await call(router, "GET", "/users/42");
+
+  expect(seen).toEqual(["42"]);
+});
+
+test("with several routers mounted, only the one that owns the route runs its middleware", async () => {
+  const calls: string[] = [];
+  const users = new RhythmRouter()
+    .use(async (_ctx, next) => {
+      calls.push("users middleware");
+      await next();
+    })
+    .get("/users", (ctx) => ctx.text("users"));
+  const posts = new RhythmRouter()
+    .use(async (_ctx, next) => {
+      calls.push("posts middleware");
+      await next();
+    })
+    .get("/posts", (ctx) => ctx.text("posts"));
+
+  const app = new Rhythm().use(mount(users)).use(mount(posts));
+
+  const usersCtx = createHttpContext(new Request("http://localhost/users"));
+  await app.callback()(usersCtx);
+  const postsCtx = createHttpContext(new Request("http://localhost/posts"));
+  await app.callback()(postsCtx);
+  const otherCtx = createHttpContext(new Request("http://localhost/other"));
+  await app.callback()(otherCtx);
+
+  expect(calls).toEqual(["users middleware", "posts middleware"]);
+  expect(usersCtx.response.body).toBe("users");
+  expect(postsCtx.response.body).toBe("posts");
+  expect(otherCtx.response.body).toBeNull();
+});
+
+test("use middleware that skips next() stops route dispatch", async () => {
+  const router = new RhythmRouter()
+    .use((ctx) => {
+      ctx.error(403, "blocked");
+    })
+    .get("/x", (ctx) => ctx.text("never"));
+
+  const ctx = await call(router, "GET", "/x");
+
+  expect(ctx.response.status).toBe(403);
+  expect(ctx.response.body).toBe("blocked");
+});
+
+test("route handlers form a middleware chain", async () => {
+  const calls: string[] = [];
+  const router = new RhythmRouter<Dyn>().get(
+    "/x",
+    async (_ctx, next) => {
+      calls.push("first in");
+      await next();
+      calls.push("first out");
+    },
+    async (ctx, next) => {
+      calls.push("second");
+      ctx.seen = "by second";
+      await next();
+    },
+    (ctx) => {
+      calls.push("last");
+      ctx.json({ seen: ctx.seen });
+    },
+  );
+
+  const ctx = await call(router, "GET", "/x");
+
+  expect(calls).toEqual(["first in", "second", "last", "first out"]);
+  expect(ctx.response.body).toBe('{"seen":"by second"}');
+});
+
+test("a route middleware can short-circuit by not calling next()", async () => {
+  const calls: string[] = [];
+  const router = new RhythmRouter().get(
+    "/secret",
+    (ctx, next) => {
+      calls.push("auth");
+      if (!ctx.request.headers.has("authorization")) {
+        ctx.error(401);
+        return;
+      }
+      return next();
+    },
+    (ctx) => {
+      calls.push("handler");
+      ctx.text("secret");
+    },
+  );
+
+  const denied = await call(router, "GET", "/secret");
+
+  expect(denied.response.status).toBe(401);
+  expect(denied.response.body).toBe("Unauthorized");
+  expect(calls).toEqual(["auth"]);
+});
+
+test("route middleware only runs for its own route", async () => {
+  const calls: string[] = [];
+  const guard = async (_ctx: unknown, next: () => Promise<void>) => {
+    calls.push("guard");
+    await next();
+  };
+  const router = new RhythmRouter()
+    .get("/guarded", guard, (ctx) => ctx.text("guarded"))
+    .get("/open", (ctx) => ctx.text("open"));
+
+  await call(router, "GET", "/open");
+  await call(router, "GET", "/guarded");
+
+  expect(calls).toEqual(["guard"]);
+});
+
+test("rou3 patterns: optional params, wildcards and catch-alls", async () => {
+  const router = new RhythmRouter()
+    .get("/posts/:id/:tab?", (ctx) => {
+      const id: string = ctx.params.id;
+      const tab: string | undefined = ctx.params.tab;
+      ctx.json({ id, tab });
+    })
+    .get("/files/**:path", (ctx) => {
+      ctx.json({ path: ctx.params.path });
     });
 
-    const res = await serve(router)(new Request("http://localhost/users/42"));
+  const withTab = await call(router, "GET", "/posts/7/comments");
+  const withoutTab = await call(router, "GET", "/posts/7");
+  const deep = await call(router, "GET", "/files/a/b/c.txt");
 
-    expect(res.status).toBe(200);
-    expect(await res.text()).toBe("user 42");
+  expect(JSON.parse(withTab.response.body)).toEqual({ id: "7", tab: "comments" });
+  expect(JSON.parse(withoutTab.response.body)).toEqual({ id: "7" });
+  expect(JSON.parse(deep.response.body)).toEqual({ path: "a/b/c.txt" });
+});
+
+test("use with derive widens the ctx type for later routes", async () => {
+  const router = new RhythmRouter().use(derive(() => ({ user: "ada" }))).get("/me", (ctx) => {
+    const user: string = ctx.user;
+    ctx.json({ user });
   });
 
-  test("a static segment always wins over a param segment, regardless of registration order", async () => {
-    const router = new RhythmRouter()
-      .get("/users/:id", (ctx) => {
-        ctx.response.body = `param:${ctx.params.id}`;
-      })
-      .get("/users/active", (ctx) => {
-        ctx.response.body = "static";
-      });
+  const ctx = await call(router, "GET", "/me");
 
-    const res = await serve(router)(new Request("http://localhost/users/active"));
-    expect(await res.text()).toBe("static");
+  expect(ctx.response.body).toBe('{"user":"ada"}');
+});
 
-    const paramRes = await serve(router)(new Request("http://localhost/users/42"));
-    expect(await paramRes.text()).toBe("param:42");
+test("a mounted router sets the response on the parent's ctx and sees its values", async () => {
+  const api = new RhythmRouter<{ appName: string }>().get("/hello", (ctx) => {
+    ctx.text(`hello from ${ctx.appName}`);
   });
 
-  test("a nested router mounts via use(child.middleware()) and falls through on miss", async () => {
-    const users = new RhythmRouter({ prefix: "/api/users" }).get("/:id", (ctx) => {
-      ctx.response.body = `user:${ctx.params.id}`;
-    });
-    const api = new RhythmRouter().use(users.middleware()).get("/api/health", (ctx) => ctx.text("ok"));
+  const app = new Rhythm().register(decorate(() => ({ appName: "rhythm" }))).use(mount(api));
+  const ctx = createHttpContext(new Request("http://localhost/hello"));
+  await app.callback()(ctx);
 
-    const handler = serve(api);
-    expect(await (await handler(new Request("http://localhost/api/users/7"))).text()).toBe("user:7");
-    expect(await (await handler(new Request("http://localhost/api/health"))).text()).toBe("ok");
+  expect(ctx.response.body).toBe("hello from rhythm");
+});
+
+test("an unmatched mounted router falls through to the parent's later middleware", async () => {
+  const api = new RhythmRouter().get("/hello", (ctx) => {
+    ctx.text("api");
   });
 
-  test("a middleware registered before mounted-only child routers runs for the children's routes", async () => {
-    const seen: string[] = [];
-    const users = new RhythmRouter({ prefix: "/users" }).get("/:id", (ctx) => ctx.text("user"));
-    const posts = new RhythmRouter({ prefix: "/posts" }).get("/:id", (ctx) => ctx.text("post"));
-    const app = new RhythmRouter()
-      .use(async (_ctx, next) => {
-        seen.push("auth");
-        await next();
-      })
-      .use(users.middleware())
-      .use(posts.middleware());
-
-    const handler = serve(app);
-    expect(await (await handler(new Request("http://localhost/users/1"))).text()).toBe("user");
-    expect(await (await handler(new Request("http://localhost/posts/1"))).text()).toBe("post");
-    expect(seen).toEqual(["auth", "auth"]);
-  });
-
-  test("a middleware before mounted routers covers nested children by method and skips unmatched requests", async () => {
-    const seen: string[] = [];
-    const deep = new RhythmRouter({ prefix: "/api/deep" }).post("/", (ctx) => ctx.text("deep"));
-    const api = new RhythmRouter().use(deep.middleware());
-    const app = new RhythmRouter()
-      .use(async (_ctx, next) => {
-        seen.push("auth");
-        await next();
-      })
-      .use(api.middleware());
-
-    const handler = serve(app);
-    expect(await (await handler(new Request("http://localhost/api/deep", { method: "POST" }))).text()).toBe("deep");
-    expect(seen).toEqual(["auth"]);
-
-    await handler(new Request("http://localhost/api/deep"));
-    await handler(new Request("http://localhost/nowhere", { method: "POST" }));
-    expect(seen).toEqual(["auth"]);
-  });
-
-  test("a '**:name' wildcard captures the rest of the path under that param", async () => {
-    const router = new RhythmRouter().get("/files/**:path", (ctx) => {
-      ctx.response.body = `file:${ctx.params.path}`;
-    });
-
-    const res = await serve(router)(new Request("http://localhost/files/docs/readme.md"));
-    expect(await res.text()).toBe("file:docs/readme.md");
-
-    const unmatched = await serve(router)(new Request("http://localhost/other"));
-    expect(await unmatched.text()).toBe("");
-  });
-
-  test("an unnamed '**' wildcard captures the rest under params._, and '*' matches one segment", async () => {
-    const router = new RhythmRouter()
-      .get("/files/**", (ctx) => {
-        ctx.response.body = `file:${ctx.params._}`;
-      })
-      .get("/one/*", (ctx) => {
-        ctx.response.body = `one:${ctx.params["0"]}`;
-      });
-
-    const handler = serve(router);
-    expect(await (await handler(new Request("http://localhost/files/a/b"))).text()).toBe("file:a/b");
-    expect(await (await handler(new Request("http://localhost/one/x"))).text()).toBe("one:x");
-    expect(await (await handler(new Request("http://localhost/one/x/y"))).text()).toBe("");
-  });
-
-  test("an optional param matches with and without the segment", async () => {
-    const router = new RhythmRouter().get("/users/:id?", (ctx) => {
-      ctx.response.body = `user:${ctx.params.id ?? "all"}`;
-    });
-
-    const withParam = await serve(router)(new Request("http://localhost/users/42"));
-    expect(await withParam.text()).toBe("user:42");
-
-    const withoutParam = await serve(router)(new Request("http://localhost/users"));
-    expect(await withoutParam.text()).toBe("user:all");
-  });
-
-  test("wildcards and optional params work under a prefix", async () => {
-    const router = new RhythmRouter({ prefix: "/api" })
-      .get("/files/**:path", (ctx) => {
-        ctx.response.body = `file:${ctx.params.path}`;
-      })
-      .get("/users/:id?", (ctx) => {
-        ctx.response.body = `user:${ctx.params.id ?? "all"}`;
-      });
-
-    const handler = serve(router);
-
-    const file = await handler(new Request("http://localhost/api/files/a/b"));
-    expect(await file.text()).toBe("file:a/b");
-
-    const users = await handler(new Request("http://localhost/api/users"));
-    expect(await users.text()).toBe("user:all");
-  });
-
-  test("falls through to next() when the method doesn't match", async () => {
-    const router = new RhythmRouter()
-      .get("/ping", (ctx) => {
-        ctx.response.body = "get";
-      })
-      .post("/ping", (ctx) => {
-        ctx.response.body = "post";
-      });
-
-    const res = await serve(router)(new Request("http://localhost/ping", { method: "POST" }));
-
-    expect(await res.text()).toBe("post");
-  });
-
-  test("falls through to next() when the path doesn't match, leaving the response as-is", async () => {
-    const router = new RhythmRouter().get("/known", (ctx) => {
-      ctx.response.body = "known";
-    });
-
-    const res = await serve(router)(new Request("http://localhost/unknown"));
-
-    expect(res.status).toBe(200);
-    expect(await res.text()).toBe("");
-  });
-
-  test("multiple handlers per route compose in onion order", async () => {
-    const events: string[] = [];
-    const router = new RhythmRouter().get(
-      "/users/:id",
-      async (ctx, next) => {
-        events.push("auth:before");
-        await next();
-        events.push("auth:after");
-      },
-      (ctx) => {
-        events.push(`handler:${ctx.params.id}`);
-        ctx.response.body = "ok";
-      },
-    );
-
-    await serve(router)(new Request("http://localhost/users/7"));
-
-    expect(events).toEqual(["auth:before", "handler:7", "auth:after"]);
-  });
-
-  test("a route middleware can guard without extending: next() is pure koa style", async () => {
-    const router = new RhythmRouter().get(
-      "/users/:id",
-      async (ctx, next) => {
-        if (ctx.params.id === "0") {
-          ctx.response.status = 403;
-          return;
-        }
-        await next();
-      },
-      (ctx) => {
-        ctx.response.body = `user-${ctx.params.id}`;
-      },
-    );
-
-    const res = await serve(router)(new Request("http://localhost/users/7"));
-    expect(await res.text()).toBe("user-7");
-
-    const denied = await serve(router)(new Request("http://localhost/users/0"));
-    expect(denied.status).toBe(403);
-  });
-
-  test("response helpers work inside route handlers end to end", async () => {
-    const router = new RhythmRouter()
-      .get("/users/:id", (ctx) => {
-        ctx.json({ id: ctx.params.id }, 201);
-      })
-      .get("/gone", (ctx) => {
-        ctx.error(410);
-      })
-      .get("/old", (ctx) => {
-        ctx.redirect("/users/1", 301);
-      });
-
-    const handler = serve(router);
-
-    const json = await handler(new Request("http://localhost/users/7"));
-    expect(json.status).toBe(201);
-    expect(json.headers.get("content-type")).toBe("application/json; charset=utf-8");
-    expect(await json.json()).toEqual({ id: "7" });
-
-    const gone = await handler(new Request("http://localhost/gone"));
-    expect(gone.status).toBe(410);
-    expect(await gone.text()).toBe("Gone");
-
-    const redirect = await handler(new Request("http://localhost/old", { redirect: "manual" }));
-    expect(redirect.status).toBe(301);
-    expect(redirect.headers.get("location")).toBe("/users/1");
-  });
-
-  test("registration order is execution order: use() after a route doesn't wrap that route", async () => {
-    const events: string[] = [];
-    const router = new RhythmRouter()
-      .get("/ping", (ctx) => {
-        events.push("route");
-        ctx.response.body = "ok";
-      })
-      .use(async (ctx, next) => {
-        events.push("late-middleware");
-        await next();
-      });
-
-    await serve(router)(new Request("http://localhost/ping"));
-
-    expect(events).toEqual(["route"]);
-  });
-
-  test("a middleware between two routes wraps only the route registered after it", async () => {
-    const events: string[] = [];
-    const router = new RhythmRouter()
-      .get("/early", (ctx) => {
-        events.push("early");
-        ctx.response.body = "early";
-      })
-      .use(async (ctx, next) => {
-        events.push("middleware");
-        await next();
-      })
-      .get("/late", (ctx) => {
-        events.push("late");
-        ctx.response.body = "late";
-      });
-
-    await serve(router)(new Request("http://localhost/early"));
-    await serve(router)(new Request("http://localhost/late"));
-
-    expect(events).toEqual(["early", "middleware", "late"]);
-  });
-
-  test("get().use().post(): the middleware wraps the post route only, not the earlier get on the same path", async () => {
-    const events: string[] = [];
-    const router = new RhythmRouter()
-      .get("/items", (ctx) => {
-        events.push("get");
-        ctx.response.body = "get";
-      })
-      .use(async (ctx, next) => {
-        events.push("middleware");
-        await next();
-      })
-      .post("/items", (ctx) => {
-        events.push("post");
-        ctx.response.body = "post";
-      });
-    const fetch = serve(router);
-
-    await fetch(new Request("http://localhost/items"));
-    await fetch(new Request("http://localhost/items", { method: "POST" }));
-
-    expect(events).toEqual(["get", "middleware", "post"]);
-  });
-
-  test("each use() wraps only what follows it: stacked middleware accumulate across routes in order", async () => {
-    const events: string[] = [];
-    const mark =
-      (name: string): Middleware<RhythmHttpContext> =>
-      async (_ctx, next) => {
-        events.push(name);
-        await next();
-      };
-    const router = new RhythmRouter()
-      .get("/a", (ctx) => ctx.json("a"))
-      .use(mark("m1"))
-      .get("/b", (ctx) => ctx.json("b"))
-      .use(mark("m2"))
-      .get("/c", (ctx) => ctx.json("c"));
-    const fetch = serve(router);
-
-    for (const path of ["/a", "/b", "/c"]) {
-      events.push(path);
-      await fetch(new Request(`http://localhost${path}`));
+  const app = new Rhythm<{}, RhythmHttpContext>().use(mount(api)).use(async (ctx, next) => {
+    if (ctx.response.body === null) {
+      ctx.error(404, "fallback");
     }
-
-    expect(events).toEqual(["/a", "/b", "m1", "/c", "m1", "m2"]);
+    await next();
   });
 
-  describe("router-level middleware is scoped to the router's own routes", () => {
-    const guard: Middleware<RhythmHttpContext> = (ctx) => {
-      ctx.error(401, "Unauthorized");
-    };
+  const ctx = createHttpContext(new Request("http://localhost/nope"));
+  await app.callback()(ctx);
 
-    const appWith = (router: RhythmRouter<any, any>) =>
-      toFetchHandler(
-        new Rhythm<RhythmHttpContext>().use(router.middleware()).use((ctx) => {
-          ctx.response.body = "downstream";
-        }),
-      );
+  expect(ctx.response.status).toBe(404);
+  expect(ctx.response.body).toBe("fallback");
+});
 
-    test("a guard only answers requests that match one of the router's routes", async () => {
-      const handler = appWith(new RhythmRouter({ prefix: "/projects" }).use(guard).get("/", (ctx) => ctx.json([])));
-
-      expect((await handler(new Request("http://localhost/projects/"))).status).toBe(401);
-
-      const other = await handler(new Request("http://localhost/docs"));
-      expect(other.status).toBe(200);
-      expect(await other.text()).toBe("downstream");
-    });
-
-    test("the method counts: a path match with another method falls through", async () => {
-      const handler = appWith(new RhythmRouter().use(guard).get("/things", (ctx) => ctx.json([])));
-
-      expect((await handler(new Request("http://localhost/things", { method: "DELETE" }))).status).toBe(200);
-      expect((await handler(new Request("http://localhost/things"))).status).toBe(401);
-    });
-
-    test("a middleware is scoped to routes registered after it", async () => {
-      const handler = appWith(
-        new RhythmRouter()
-          .get("/open", (ctx) => ctx.json("open"))
-          .use(guard)
-          .get("/closed", (ctx) => ctx.json("closed")),
-      );
-
-      expect((await handler(new Request("http://localhost/open"))).status).toBe(200);
-      expect((await handler(new Request("http://localhost/closed"))).status).toBe(401);
-    });
-
-    test("a mounted child router still runs without any route of its own", async () => {
-      const child = new RhythmRouter({ prefix: "/users" }).get("/:id", (ctx) => ctx.json(ctx.params.id));
-      const handler = appWith(new RhythmRouter().use(child.middleware()));
-
-      expect(await (await handler(new Request("http://localhost/users/5"))).json()).toBe("5");
-    });
-
-    test("a derive used before routes does not leak into the type the router's middleware() requires", async () => {
-      const withUser = (() => {}) as unknown as DeriveMiddleware<RhythmHttpContext, { user: string }>;
-      const mounted: Middleware<RhythmHttpContext> = new RhythmRouter().use(withUser).middleware();
-
-      expect(typeof mounted).toBe("function");
-    });
+test("mount can scope a router with its condition", async () => {
+  const api = new RhythmRouter().get("/api/ping", (ctx) => {
+    ctx.text("pong");
   });
 
-  describe("prefix", () => {
-    test("routes are matched under the configured prefix", async () => {
-      const router = new RhythmRouter({ prefix: "/api" }).get("/users/:id", (ctx) => {
-        ctx.response.body = ctx.params.id;
-      });
+  const app = new Rhythm<{}, RhythmHttpContext>().use(
+    mount(api, (ctx) => new URL(ctx.request.url).pathname.startsWith("/api")),
+  );
 
-      const handler = serve(router);
+  const hit = createHttpContext(new Request("http://localhost/api/ping"));
+  const miss = createHttpContext(new Request("http://localhost/ping"));
+  await app.callback()(hit);
+  await app.callback()(miss);
 
-      const prefixed = await handler(new Request("http://localhost/api/users/5"));
-      expect(await prefixed.text()).toBe("5");
+  expect(hit.response.body).toBe("pong");
+  expect(miss.response.body).toBeNull();
+});
 
-      const unprefixed = await handler(new Request("http://localhost/users/5"));
-      expect(unprefixed.status).toBe(200);
-      expect(await unprefixed.text()).toBe("");
-    });
-
-    test("normalizes a trailing slash on the prefix and a missing leading slash on the path", async () => {
-      const router = new RhythmRouter({ prefix: "/api/" }).get("users/:id", (ctx) => {
-        ctx.response.body = ctx.params.id;
-      });
-
-      const res = await serve(router)(new Request("http://localhost/api/users/9"));
-      expect(await res.text()).toBe("9");
-    });
-
-    test("a child router mounted via use(child.middleware()) serves under its own prefix", async () => {
-      const usersRouter = new RhythmRouter({ prefix: "/api/users" }).get("/:id", (ctx) => {
-        ctx.response.body = ctx.params.id;
-      });
-
-      const rootRouter = new RhythmRouter().use(usersRouter.middleware());
-
-      const handler = serve(rootRouter);
-
-      const prefixed = await handler(new Request("http://localhost/api/users/5"));
-      expect(await prefixed.text()).toBe("5");
-
-      const unprefixed = await handler(new Request("http://localhost/users/5"));
-      expect(unprefixed.status).toBe(200);
-      expect(await unprefixed.text()).toBe("");
-    });
-
-    test("nesting is wiring only: a parent's prefix does not re-prefix a mounted child's paths", async () => {
-      const usersRouter = new RhythmRouter({ prefix: "/v1" }).get("/users/:id", (ctx) => {
-        ctx.response.body = ctx.params.id;
-      });
-
-      const apiRouter = new RhythmRouter({ prefix: "/api" }).use(usersRouter.middleware());
-
-      const handler = serve(apiRouter);
-
-      const own = await handler(new Request("http://localhost/v1/users/7"));
-      expect(await own.text()).toBe("7");
-
-      const reprefixed = await handler(new Request("http://localhost/api/v1/users/7"));
-      expect(reprefixed.status).toBe(200);
-      expect(await reprefixed.text()).toBe("");
-    });
-
-    test("mounting a child router leaves it fully usable standalone", async () => {
-      const usersRouter = new RhythmRouter({ prefix: "/users" }).get("/:id", (ctx) => {
-        ctx.response.body = ctx.params.id;
-      });
-
-      new RhythmRouter().use(usersRouter.middleware());
-
-      const res = await serve(usersRouter)(new Request("http://localhost/users/5"));
-      expect(await res.text()).toBe("5");
-    });
+test("a router can be mounted from a catch-all route of another router", async () => {
+  const inner = new RhythmRouter().get("/api/deep", (ctx) => {
+    ctx.text("inner");
   });
+  const outer = new RhythmRouter().get("/api/**", mount(inner));
 
-  describe("middleware(), mounted via a parent's use() (koa-style)", () => {
-    test("a matched route that doesn't call next() short-circuits the parent app's downstream middleware", async () => {
-      const router = new RhythmRouter().get("/hello", (ctx) => {
-        ctx.response.body = "router";
-      });
+  const ctx = await call(outer, "GET", "/api/deep");
 
-      const app = new Rhythm<RhythmHttpContext>().use(router.middleware()).use((ctx) => {
-        ctx.response.status = 404;
-        ctx.response.body = "Not Found";
-      });
+  expect(ctx.response.body).toBe("inner");
+});
 
-      const res = await toFetchHandler(app)(new Request("http://localhost/hello"));
-
-      expect(res.status).toBe(200);
-      expect(await res.text()).toBe("router");
-    });
-
-    test("an unmatched request falls all the way through to the parent app's downstream middleware", async () => {
-      const router = new RhythmRouter().get("/hello", (ctx) => {
-        ctx.response.body = "router";
-      });
-
-      const app = new Rhythm<RhythmHttpContext>().use(router.middleware()).use((ctx) => {
-        ctx.response.status = 404;
-        ctx.response.body = "Not Found";
-      });
-
-      const res = await toFetchHandler(app)(new Request("http://localhost/unmatched"));
-
-      expect(res.status).toBe(404);
-      expect(await res.text()).toBe("Not Found");
-    });
-
-    test("a route that explicitly calls next() still lets the parent's downstream middleware run", async () => {
-      const router = new RhythmRouter().get("/hello", async (ctx, next) => {
-        ctx.response.body = "router";
-        await next();
-      });
-
-      const app = new Rhythm<RhythmHttpContext>().use(router.middleware()).use((ctx) => {
-        ctx.response.headers.set("x-app", "seen");
-      });
-
-      const res = await toFetchHandler(app)(new Request("http://localhost/hello"));
-
-      expect(await res.text()).toBe("router");
-      expect(res.headers.get("x-app")).toBe("seen");
-    });
+test("mounting a router with use() on a router without routes does nothing", async () => {
+  const inner = new RhythmRouter().get("/deep", (ctx) => {
+    ctx.text("inner");
   });
+  const outer = new RhythmRouter().use(mount(inner));
 
-  describe("derived context", () => {
-    type UserContext = { user: { name: string } };
+  const ctx = await call(outer, "GET", "/deep");
 
-    const attach = <TExtra extends object>(extra: TExtra): DeriveMiddleware<RhythmHttpContext, TExtra> => {
-      const middleware: Middleware<RhythmHttpContext> = async (ctx, next) => {
-        Object.assign(ctx, extra);
-        await next();
-      };
-      return middleware as DeriveMiddleware<RhythmHttpContext, TExtra>;
-    };
+  expect(ctx.response.body).toBeNull();
+});
 
-    test("context derived by middleware reaches route handlers on a typed router", async () => {
-      const withUser: Middleware<RhythmHttpContext & Partial<UserContext>> = async (ctx, next) => {
-        ctx.user = { name: "Ada" };
-        await next();
-      };
+test("derive as the first route handler widens the ctx type for the handlers after it", async () => {
+  const router = new RhythmRouter().get(
+    "/me",
+    derive(() => ({ user: "ada" })),
+    (ctx) => {
+      const user: string = ctx.user;
+      ctx.json({ user });
+    },
+  );
 
-      const router = new RhythmRouter<RhythmHttpContext & UserContext>().use(withUser).get("/me", (ctx) => {
-        ctx.response.body = `hi ${ctx.user.name} at ${ctx.params.id ?? "root"}`;
-      });
+  const ctx = await call(router, "GET", "/me");
 
-      const res = await serve(router)(new Request("http://localhost/me"));
+  expect(ctx.response.body).toBe('{"user":"ada"}');
+});
 
-      expect(await res.text()).toBe("hi Ada at root");
-    });
+test("derived route values are precisely typed, not any", () => {
+  new RhythmRouter().get(
+    "/me",
+    derive(() => ({ user: "ada", visits: 3 })),
+    (ctx) => {
+      const visits: number = ctx.visits;
+      // @ts-expect-error
+      const wrong: number = ctx.user;
+      return [visits, wrong];
+    },
+  );
+});
 
-    test("use() with a derive-branded middleware widens the context for later routes, like Rhythm.use()", async () => {
-      const router = new RhythmRouter()
-        .use(attach({ user: { name: "Lin" } }))
-        .use(attach({ trace: "abc" }))
-        .get("/hello", (ctx) => {
-          ctx.response.body = `hi ${ctx.user.name} (${ctx.trace})`;
-        });
+test("a route derive can read params and the request", async () => {
+  const router = new RhythmRouter().get(
+    "/users/:id",
+    derive((ctx) => ({
+      id: Number(ctx.params.id),
+      method: ctx.request.method,
+    })),
+    (ctx) => {
+      const id: number = ctx.id;
+      ctx.json({ id, method: ctx.method });
+    },
+  );
 
-      const res = await serve(router)(new Request("http://localhost/hello"));
+  const ctx = await call(router, "GET", "/users/42");
 
-      expect(await res.text()).toBe("hi Lin (abc)");
-    });
+  expect(ctx.response.body).toBe('{"id":42,"method":"GET"}');
+});
 
-    test("a derive middleware in the route's middleware slot types the handler, without explicit generics", async () => {
-      const router = new RhythmRouter().get("/me/:id", attach({ user: { name: "Ada" } }), (ctx) => {
-        ctx.response.body = `${ctx.user.name}/${ctx.params.id}`;
-      });
+test("an async route derive is awaited and typed by its resolved value", async () => {
+  const router = new RhythmRouter().get(
+    "/x",
+    derive(async () => ({ token: await Promise.resolve("abc") })),
+    (ctx) => {
+      const token: string = ctx.token;
+      ctx.text(token);
+    },
+  );
 
-      const res = await serve(router)(new Request("http://localhost/me/7"));
+  const ctx = await call(router, "GET", "/x");
 
-      expect(await res.text()).toBe("Ada/7");
-    });
+  expect(ctx.response.body).toBe("abc");
+});
 
-    test("compose() fuses any number of derive middlewares into one typed slot middleware", async () => {
-      const guard = compose([attach({ user: { name: "Grace" } }), attach({ trace: "t1" }), attach({ tenant: "acme" })]);
+test("route derive works with further middleware and every verb", async () => {
+  const calls: string[] = [];
+  const router = new RhythmRouter()
+    .post(
+      "/a",
+      derive(() => ({ n: 1 })),
+      (_ctx, next) => {
+        calls.push("mw");
+        return next();
+      },
+      (ctx) => void calls.push(`post:${ctx.n}`),
+    )
+    .put(
+      "/a",
+      derive(() => ({ n: 2 })),
+      (ctx) => void calls.push(`put:${ctx.n}`),
+    )
+    .patch(
+      "/a",
+      derive(() => ({ n: 3 })),
+      (ctx) => void calls.push(`patch:${ctx.n}`),
+    )
+    .delete(
+      "/a",
+      derive(() => ({ n: 4 })),
+      (ctx) => void calls.push(`delete:${ctx.n}`),
+    );
 
-      const router = new RhythmRouter().get("/whoami", guard, (ctx) => {
-        ctx.response.body = [ctx.user.name, ctx.trace, ctx.tenant].join("/");
-      });
+  for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+    await call(router, method, "/a");
+  }
 
-      const res = await serve(router)(new Request("http://localhost/whoami"));
+  expect(calls).toEqual(["mw", "post:1", "put:2", "patch:3", "delete:4"]);
+});
 
-      expect(await res.text()).toBe("Grace/t1/acme");
-    });
+test("a route derive only applies to its own route", async () => {
+  const seen: unknown[] = [];
+  const router = new RhythmRouter()
+    .get(
+      "/with",
+      derive(() => ({ extra: "yes" })),
+      (ctx) => void seen.push(ctx.extra),
+    )
+    // @ts-expect-error `extra` is only derived for /with
+    .get("/without", (ctx) => void seen.push(ctx.extra));
 
-    test("context derived inside a route's own middleware chain reaches later handlers", async () => {
-      const withUser: Middleware<RhythmHttpContext & Partial<UserContext>> = async (ctx, next) => {
-        ctx.user = { name: "Grace" };
-        await next();
-      };
+  await call(router, "GET", "/with");
+  await call(router, "GET", "/without");
 
-      const router = new RhythmRouter<RhythmHttpContext & UserContext>().get("/whoami", withUser, (ctx) => {
-        ctx.response.body = ctx.user.name;
-      });
+  expect(seen).toEqual(["yes", undefined]);
+});
 
-      const res = await serve(router)(new Request("http://localhost/whoami"));
-
-      expect(await res.text()).toBe("Grace");
-    });
-  });
-
-  test("a router is a controller, not a module: it exposes no register() or context", () => {
-    const router = new RhythmRouter();
-
-    expect("register" in router).toBe(false);
-    expect("context" in router).toBe(false);
-  });
-
-  describe("entries", () => {
-    test("exposes middlewares and routes in registration order with prefixed paths", () => {
-      const mw: Middleware<RhythmHttpContext> = async (_ctx, next) => {
-        await next();
-      };
-      const handler: Middleware<any> = (ctx) => {
-        ctx.response.body = "ok";
-      };
-
-      const router = new RhythmRouter({ prefix: "/api" }).get("/users", handler).use(mw).post("/users/:id", handler);
-
-      const entries = router.entries;
-      expect(entries).toHaveLength(3);
-      expect(entries[0]).toEqual({ kind: "route", method: "GET", path: "/api/users", handlers: [handler] });
-      expect(entries[1]).toEqual({ kind: "middleware", fn: mw });
-      expect(entries[2]).toEqual({ kind: "route", method: "POST", path: "/api/users/:id", handlers: [handler] });
-    });
-
-    test("returns a copy: mutating the result does not affect dispatch", async () => {
-      const router = new RhythmRouter().get("/ping", (ctx) => {
-        ctx.response.body = "pong";
-      });
-
-      (router.entries as unknown[]).length = 0;
-
-      const res = await serve(router)(new Request("http://localhost/ping"));
-      expect(await res.text()).toBe("pong");
-    });
-  });
+test("RhythmRouter is a Pipeline", () => {
+  expect(new RhythmRouter()).toBeInstanceOf(Pipeline);
 });

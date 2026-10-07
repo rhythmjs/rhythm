@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { createPrompt, type RhythmPromptIO } from "./prompt";
+import { RhythmCli } from "./rhythm-cli";
+import { createPrompt, withPrompt, type RhythmPromptIO } from "./prompt";
+import { toCliHandler } from "./run";
 
 function fakeIO(answers: string[]): { io: RhythmPromptIO; output: () => string } {
   const queue = [...answers];
@@ -112,4 +114,26 @@ describe("createPrompt()", () => {
       expect(choices).toEqual(["frontend", "custom-tag"]);
     });
   });
+});
+
+function capture() {
+  const out: string[] = [];
+  return { out, io: { stdout: { write: (t: string) => out.push(t) }, stderr: { write: () => {} } } };
+}
+
+test("withPrompt() provides a prompt and closes its IO afterwards", async () => {
+  const { out, io } = capture();
+  let closed = false;
+  const cli = new RhythmCli()
+    .use(
+      withPrompt(() => ({
+        ask: async () => "ada",
+        write: () => {},
+        close: () => void (closed = true),
+      })),
+    )
+    .cmd("hi", async (ctx) => ctx.log(await ctx.prompt.text("name?")));
+  expect(await toCliHandler(cli, io)(["hi"])).toBe(0);
+  expect(out.join("")).toBe("ada\n");
+  expect(closed).toBe(true);
 });

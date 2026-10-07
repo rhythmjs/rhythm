@@ -1,112 +1,83 @@
-import { compose, gate } from "./compose";
-import { sourceOf, withSource } from "./source";
-import type { Condition, DeriveMiddleware, Middleware, OmitHashKeys } from "./types";
+import { Pipeline } from "./pipeline";
+import { sourceOf } from "./source";
+import type {
+  CleanupCallback,
+  ExtensionMiddleware,
+  ExtensionRegister,
+  Middleware,
+  PipelineOptions,
+  RegisterCallback,
+  RhythmHandler,
+} from "./types";
 
-export interface RhythmOptions {
-  name?: string;
-  type?: string;
-  [key: string]: unknown;
-}
+export { compose } from "./compose";
+export { decorate } from "./decorate";
+export { derive } from "./derive";
+export { include } from "./include";
+export { mount } from "./mount";
+export { Pipeline } from "./pipeline";
+export { sourceOf, withSource } from "./source";
+export type * from "./types";
 
-function publicEntries(value: object): Record<string, unknown> {
-  const exported: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(value)) {
-    if (!key.startsWith("#")) exported[key] = val;
-  }
-  return exported;
-}
+export class Rhythm<S extends object = {}, I extends object = {}, D extends object = {}> extends Pipeline<S & I & D> {
+  declare readonly "~input"?: I;
 
-export function derive<TContext extends object, TExtra extends object>(
-  fn: (ctx: TContext) => TExtra | Promise<TExtra>,
-): DeriveMiddleware<TContext, OmitHashKeys<TExtra>> {
-  if (typeof fn !== "function") throw new TypeError("derive factory must be a function!");
-  const middleware: Middleware<TContext> = async (ctx, next) => {
-    const value = await fn(ctx);
-    Object.assign(ctx, publicEntries(value as object));
-    await next();
-  };
-  return middleware as DeriveMiddleware<TContext, OmitHashKeys<TExtra>>;
-}
+  #ctx = {} as S;
+  #cleanups: (() => unknown)[] = [];
+  #ready?: Promise<unknown>;
 
-export class Rhythm<
-  TInput extends object = {},
-  TStartup extends object = {},
-  TContext extends object = TInput & TStartup,
-> {
-  #middleware: Middleware<any>[] = [];
-  #options: RhythmOptions;
-  #sources: object[] = [];
+  protected override readonly transparent = true;
 
-  readonly context: TStartup = {} as TStartup;
-
-  parent?: Rhythm<any, any, any>;
-
-  constructor(options: RhythmOptions = {}) {
-    this.#options = options;
+  constructor(options?: PipelineOptions) {
+    super({ type: "module", ...options });
   }
 
-  get sources(): readonly object[] {
-    return this.#sources.flatMap((source) => (source instanceof Rhythm ? source.sources : [source]));
-  }
-
-  #adopt(source: object | undefined): void {
-    if (!source) return;
-    if (source instanceof Rhythm) source.parent = this;
-    this.#sources.push(source);
-  }
-
-  use<TExtra extends object>(fn: DeriveMiddleware<TContext, TExtra>): Rhythm<TInput, TStartup, TContext & TExtra>;
-  use(fn: Middleware<TContext>, condition?: Condition<TContext>): this;
-  use(fn: Middleware<TContext>, condition?: Condition<TContext>): any {
-    if (typeof fn !== "function") throw new TypeError("middleware must be a function!");
-    this.#middleware.push(condition ? gate(fn, condition) : fn);
-    this.#adopt(sourceOf(fn));
+  register<U extends object>(callback: ExtensionRegister<S, U>, cleanup?: CleanupCallback<S & U>): Rhythm<S & U, I, D>;
+  register(callback: RegisterCallback<S>, cleanup?: CleanupCallback<S>): this;
+  register(callback: RegisterCallback<S>, cleanup?: CleanupCallback<any>) {
+    this.adopt(sourceOf(callback));
+    const result = callback(this.#ctx, this);
+    if (result instanceof Promise) {
+      this.#ready = Promise.all([this.#ready, result]);
+    }
+    if (cleanup) {
+      this.#cleanups.push(() => cleanup(this.#ctx, this));
+    }
     return this;
   }
 
-  register<TRegInput extends object, TRegContext extends object, TExported extends object = {}>(
-    other: Rhythm<TRegInput, any, TRegContext> & (TContext extends TRegInput ? unknown : never),
-    exportValue?: (result: TRegContext) => TExported,
-  ): Rhythm<TInput, TStartup, TContext & TExported> {
-    const module = other as Rhythm<TRegInput, any, TRegContext>;
-    this.#adopt(module);
-    this.#middleware.push(async (ctx, next) => {
-      const inner = Object.assign({ ...ctx }, module.context) as unknown as TRegContext;
-      let downstream: { error: unknown } | undefined;
+  async stop(): Promise<void> {
+    const errors: unknown[] = [];
+    while (this.#cleanups.length) {
+      const cleanup = this.#cleanups.pop()!;
       try {
-        await compose<TRegContext>([...module.#middleware])(inner, async () => {
-          try {
-            if (exportValue) Object.assign(ctx, exportValue(inner));
-            await next();
-          } catch (error) {
-            downstream = { error };
-            throw error;
-          }
-          return inner;
-        });
-      } catch (cause) {
-        if (downstream && downstream.error === cause) throw cause;
-        const { type = "module", name = "anonymous" } = module.#options;
-        throw new Error(`registered ${type} "${name}" failed`, { cause });
+        await cleanup();
+      } catch (error) {
+        errors.push(error);
       }
-    });
-    return this as unknown as Rhythm<TInput, TStartup, TContext & TExported>;
+    }
+    if (errors.length) {
+      throw new AggregateError(errors, "cleanup failed");
+    }
   }
 
-  callback(): (input: TInput) => Promise<TContext> {
-    const fn = compose<TContext>([...this.#middleware]);
-    return (input: TInput) => fn({ ...this.context, ...input } as unknown as TContext);
+  [Symbol.asyncDispose](): Promise<void> {
+    return this.stop();
   }
 
-  run(input: TInput): Promise<TContext> {
-    return this.callback()(input);
+  override use<U extends object>(middleware: ExtensionMiddleware<S & I & D, U>): Rhythm<S, I, D & U>;
+  override use(middleware: Middleware<S & I & D>): this;
+  override use(middleware: Middleware<S & I & D>) {
+    return super.use(middleware);
   }
 
-  middleware(): Middleware<TContext> {
-    const fn = compose<TContext>([...this.#middleware]);
-    return withSource(async (ctx, next) => {
-      Object.assign(ctx, this.context);
-      await fn(ctx as unknown as TContext, next);
-    }, this);
+  override callback(): RhythmHandler<I, S & I & D> {
+    const fn = this.chain();
+    return (async (input?: I) => {
+      if (this.#ready) await this.#ready;
+      const ctx = Object.assign({}, this.#ctx, input) as S & I & D;
+      await fn(ctx);
+      return ctx;
+    }) as RhythmHandler<I, S & I & D>;
   }
 }
