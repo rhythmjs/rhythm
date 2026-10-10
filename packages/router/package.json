@@ -1,6 +1,6 @@
 {
   "name": "@rhythmjs/router",
-  "version": "0.0.22",
+  "version": "0.0.23",
   "description": "Bun-native HTTP router for Rhythm: RhythmRouter plus a fetch handler for Bun.serve, matching with rou3.",
   "homepage": "https://rhythm.js.org/router",
   "license": "ISC",
@@ -45,15 +45,18 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@rhythmjs/rhythm": "workspace:*",
     "rou3": "^1.0.0"
   },
   "devDependencies": {
+    "@rhythmjs/rhythm": "workspace:*",
     "@types/bun": "^1.2.0",
     "@types/node": "^26.6.3",
     "typescript": "^7.0.2"
   },
   "engines": {
     "bun": ">=1.2.0"
+  },
+  "peerDependencies": {
+    "@rhythmjs/rhythm": ">=0.0.23"
   }
 }

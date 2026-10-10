@@ -1,6 +1,6 @@
 {
   "name": "@rhythmjs/cli",
-  "version": "0.0.22",
+  "version": "0.0.23",
   "description": "Command-line routing for Rhythm: RhythmCli commands, argv parsing, prompts and a Bun runner.",
   "homepage": "https://rhythm.js.org/cli",
   "license": "ISC",
@@ -49,15 +49,18 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@rhythmjs/rhythm": "workspace:*",
     "rou3": "^1.0.0"
   },
   "devDependencies": {
+    "@rhythmjs/rhythm": "workspace:*",
     "@types/bun": "^1.4.2",
     "@types/node": "^26.6.3",
     "typescript": "^7.0.2"
   },
   "engines": {
     "bun": ">=1.2.0"
+  },
+  "peerDependencies": {
+    "@rhythmjs/rhythm": ">=0.0.23"
   }
 }
