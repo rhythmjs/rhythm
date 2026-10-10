@@ -87,11 +87,17 @@ export class Rhythm<S extends object = {}, I extends object = {}, D extends obje
 
   override callback(): RhythmHandler<I, S & I & D> {
     const fn = this.chain();
-    return (async (input?: I) => {
-      if (this.#ready) await this.#ready;
-      const ctx = Object.assign({}, this.#ctx, input) as S & I & D;
-      await fn(ctx);
-      return ctx;
-    }) as RhythmHandler<I, S & I & D>;
+    const run = (input?: I) => {
+      try {
+        const ctx = Object.assign({}, this.#ctx, input) as S & I & D;
+        return fn(ctx).then(() => ctx);
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    };
+    return ((input?: I) => (this.#ready ? this.#ready.then(() => run(input)) : run(input))) as RhythmHandler<
+      I,
+      S & I & D
+    >;
   }
 }

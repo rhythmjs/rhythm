@@ -8,6 +8,7 @@ import {
   type PipelineOptions,
 } from "@rhythmjs/rhythm";
 import type { RhythmHttpContext } from "./context";
+import { pathnameOf } from "./pathname";
 
 export type RouterContext<T extends object> = T & RhythmHttpContext;
 
@@ -28,9 +29,11 @@ type Route<T extends object> = (ctx: RouterContext<T>) => Promise<void>;
 
 function decodeParams(params: Record<string, string> | undefined) {
   const decoded: Record<string, string> = {};
+  if (!params) return decoded;
   try {
-    for (const [key, value] of Object.entries(params ?? {})) {
-      decoded[key] = decodeURIComponent(value);
+    for (const key in params) {
+      const value = params[key]!;
+      decoded[key] = value.includes("%") ? decodeURIComponent(value) : value;
     }
   } catch {
     return undefined;
@@ -105,18 +108,21 @@ export class RhythmRouter<I extends object = {}, D extends object = {}> extends 
 
   override callback() {
     const run = this.chain();
-    return async (input: RouterContext<I>) => {
+    return (input: RouterContext<I>) => {
       const ctx = input as RouterContext<I & D>;
-      const match = this.#match(ctx);
-      if (!match) return ctx;
-      Object.assign(ctx, { params: match.params });
-      await run(ctx as UseContext<I & D>, () => match.route(ctx));
-      return ctx;
+      try {
+        const match = this.#match(ctx);
+        if (!match) return Promise.resolve(ctx);
+        Object.assign(ctx, { params: match.params });
+        return run(ctx as UseContext<I & D>, () => match.route(ctx)).then(() => ctx);
+      } catch (error) {
+        return Promise.reject(error);
+      }
     };
   }
 
   #match(ctx: RouterContext<I & D>) {
-    const found = findRoute(this.#routes, ctx.request.method, new URL(ctx.request.url).pathname);
+    const found = findRoute(this.#routes, ctx.request.method, pathnameOf(ctx.request.url));
     if (!found) return undefined;
     const params = decodeParams(found.params);
     if (!params) return undefined;

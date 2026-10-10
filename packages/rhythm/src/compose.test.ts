@@ -51,4 +51,28 @@ describe("compose()", () => {
     ]);
     await expect(run({})).rejects.toThrow("boom");
   });
+  test("an empty chain runs only the outer next", async () => {
+    const log: string[] = [];
+    await compose<object>([])({}, async () => void log.push("outer"));
+    await compose<object>([])({});
+    expect(log).toEqual(["outer"]);
+  });
+
+  test("awaits thenables that are not native promises", async () => {
+    const log: string[] = [];
+    const thenable = { then: (resolve: () => void) => setTimeout(() => (log.push("late"), resolve()), 5) };
+    await compose<object>([() => thenable as unknown as Promise<void>])({});
+    expect(log).toEqual(["late"]);
+  });
+
+  test("a middleware that throws after next() still rejects, not throws", async () => {
+    const run = compose<object>([
+      async (_, next) => {
+        await next();
+        throw new Error("after");
+      },
+      () => {},
+    ]);
+    await expect(run({})).rejects.toThrow("after");
+  });
 });

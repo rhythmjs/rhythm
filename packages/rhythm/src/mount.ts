@@ -9,15 +9,20 @@ export function mount<T extends object = {}, I extends object = any>(
 ): Middleware<T> & Input<T>;
 export function mount(plugin: Mountable, condition?: (ctx: any) => boolean): unknown {
   const handler = plugin.callback();
-  const middleware: Middleware<any> = async (ctx: any, next) => {
-    if (!condition || condition(ctx)) {
-      try {
-        await handler(ctx);
-      } catch (cause) {
-        throw wrapFailure("mounted", plugin, cause);
-      }
+  const wrap = (cause: unknown): never => {
+    throw wrapFailure("mounted", plugin, cause);
+  };
+  const middleware: Middleware<any> = (ctx: any, next) => {
+    try {
+      if (condition && !condition(ctx)) return next();
+    } catch (cause) {
+      return Promise.reject(cause);
     }
-    await next();
+    try {
+      return handler(ctx).then(() => next(), wrap);
+    } catch (cause) {
+      return Promise.reject(wrapFailure("mounted", plugin, cause));
+    }
   };
   return withSource(middleware, plugin);
 }
