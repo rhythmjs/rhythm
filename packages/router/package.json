@@ -23,6 +23,14 @@
       "types": "./dist/context.d.ts",
       "default": "./dist/context.js"
     },
+    "./response": {
+      "types": "./dist/response.d.ts",
+      "default": "./dist/response.js"
+    },
+    "./url": {
+      "types": "./dist/url.d.ts",
+      "default": "./dist/url.js"
+    },
     "./fetch": {
       "types": "./dist/fetch.d.ts",
       "default": "./dist/fetch.js"
@@ -39,7 +47,7 @@
   "scripts": {
     "clean": "rm -rf dist",
     "prebuild": "bun run clean",
-    "build": "bun build src/rhythm-router.ts src/context.ts src/fetch.ts src/path.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
+    "build": "bun build src/rhythm-router.ts src/context.ts src/response.ts src/url.ts src/fetch.ts src/path.ts --outdir dist --root src --format esm --target bun --packages external --splitting && tsc -p tsconfig.build.json",
     "prepublishOnly": "bun run typecheck && bun test && bun run build",
     "typecheck": "tsc --noEmit",
     "test": "bun test"

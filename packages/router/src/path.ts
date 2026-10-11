@@ -1,5 +1,5 @@
 import { addRoute, createRouter, findRoute } from "rou3";
-import type { RhythmHttpContext } from "@rhythmjs/router/context";
+import type { RhythmHttpContext } from "./context";
 import { pathnameOf } from "./pathname";
 
 export function pathIs(pattern: string): (ctx: RhythmHttpContext) => boolean {

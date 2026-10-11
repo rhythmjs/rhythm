@@ -20,7 +20,7 @@ const serve = (pattern: string, body = (request: Request) => new URL(request.url
       .use(mount(downstream)),
   );
 
-const get = (handler: (request: Request) => Promise<Response>, path: string, init?: RequestInit) =>
+const get = (handler: (request: Request) => Response | Promise<Response>, path: string, init?: RequestInit) =>
   handler(new Request(`http://localhost${path}`, init));
 
 describe("pathIs: rou3 path conventions", () => {

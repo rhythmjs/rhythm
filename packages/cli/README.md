@@ -9,22 +9,23 @@ The command-line layer of Rhythm, the Bun-native backend framework: command rout
 ```ts
 import { RhythmCli } from "@rhythmjs/cli";
 import { withParsedArgv } from "@rhythmjs/cli/argv";
+import { fail, log } from "@rhythmjs/cli/output";
 import { toCliHandler } from "@rhythmjs/cli/run";
 
 const cli = new RhythmCli({ name: "tool" })
   .use(withParsedArgv())
   .cmd("greet :name?", (ctx) => {
     const message = `hello ${ctx.params.name ?? "world"}`;
-    ctx.log(ctx.flags.shout ? message.toUpperCase() : message);
+    log(ctx, ctx.flags.shout ? message.toUpperCase() : message);
   })
   .cmd(
     "deploy :env",
     (ctx, next) => {
       if (!["staging", "production"].includes(ctx.params.env))
-        return ctx.fail(`unknown environment '${ctx.params.env}'`);
+        return fail(ctx, `unknown environment '${ctx.params.env}'`);
       return next();
     },
-    (ctx) => ctx.log(`deployed to ${ctx.params.env}`),
+    (ctx) => log(ctx, `deployed to ${ctx.params.env}`),
   );
 
 process.exitCode = await toCliHandler(cli)(Bun.argv.slice(2));
@@ -37,7 +38,7 @@ process.exitCode = await toCliHandler(cli)(Bun.argv.slice(2));
 - **Strict context.** The context only has what was added: `ctx.nope` is a compile error, `ctx.flags` only exists after `withParsedArgv()`, `ctx.prompt` only after `withPrompt()`, and `derive()` widens it for the handlers after it. A command-level `derive` only affects that command. `toCliHandler(app)` rejects, at compile time, an app that requires input the runner cannot supply.
 - **Request-time middleware.** `cli.use(middleware)` wraps commands and runs only when a command matched, so a guard never answers an unknown command. `derive()` extends the context type.
 - **Running and exit codes.** `toCliHandler(app, io?)` returns `(argv) => Promise<number>`: the exit code. It reports an unmatched command as `error: unknown command 'x'` (exit code 2, or `no command given`), and a thrown error as an error line (exit code 1). `app` can be a `RhythmCli`, or a `Rhythm` app that mounts one. Register `cmd("", handler)` to handle the no-argument case yourself.
-- **Output.** The context carries `argv`, `stdout`, `stderr`, `exitCode`, and the helpers `log(...)` (stdout), `error(...)` (stderr) and `fail(message, code = 1)` (prints `error: message` to stderr and sets the exit code). Pass `io: { stdout, stderr }` to `toCliHandler` to capture output, e.g. in tests.
+- **Output.** The context carries `argv`, `stdout`, `stderr` and `exitCode`. Output goes through plain functions from `@rhythmjs/cli/output`: `log(ctx, ...parts)` (stdout), `error(ctx, ...parts)` (stderr) and `fail(ctx, message, code = 1)` (prints `error: message` to stderr and sets the exit code). Pass `io: { stdout, stderr }` to `toCliHandler` to capture output, e.g. in tests.
 - **Named failures.** `new RhythmCli({ name })` labels failures when mounted: `mounted cli "tool" failed` with the original error as `cause`.
 
 ## Opt-in extensions
@@ -50,7 +51,7 @@ Nothing is added to the context unless you ask for it:
 ```ts
 const cli = new RhythmCli().use(withPrompt()).cmd("init", async (ctx) => {
   const name = await ctx.prompt.text("Project name?", { default: "my-app" });
-  if (await ctx.prompt.confirm("Install dependencies?", { default: true })) ctx.log(`installing for ${name}`);
+  if (await ctx.prompt.confirm("Install dependencies?", { default: true })) log(ctx, `installing for ${name}`);
 });
 ```
 
@@ -71,9 +72,10 @@ process.exitCode = await toCliHandler(app)(Bun.argv.slice(2));
 - `new RhythmCli<I, D>(options?)`: `I` is context the CLI needs from the parent (checked by `mount()`), `D` is what its own `derive()` calls add; both are usually inferred. `options.name` labels failures (`type` defaults to `"cli"`).
 - `.cmd(command, ...handlers)`: register a command.
 - `.use(middleware)`: command-level middleware; `derive()` extends the context type.
-- `.callback()`: the CLI as a `(ctx) => Promise<ctx>` function, used by `mount()` and `toCliHandler()`.
+- `.callback()`: the CLI as an async `(ctx) => Promise<ctx>` function, used by `mount()` and `toCliHandler()`.
 - `.sources` / `.parent` / `.options`: inherited from `Pipeline`.
-- `createCliContext(argv, io?)` (`@rhythmjs/cli/context`): the base context with `log`, `error`, `fail` and `exitCode`.
+- `createCliContext(argv, io?)` (`@rhythmjs/cli/context`): the base context with `argv`, `stdout`, `stderr` and `exitCode`.
+- `log`, `error`, `fail` (`@rhythmjs/cli/output`): the output helpers described above.
 - `toCliHandler(app, io?)` (`@rhythmjs/cli/run`): bridges a CLI or `Rhythm` app to `(argv) => Promise<number>`.
 - `parseArgv(argv)`, `withParsedArgv()` (`@rhythmjs/cli/argv`); `createPrompt(io)`, `createStdioPromptIO()`, `withPrompt(createIO?)` (`@rhythmjs/cli/prompt`).
 

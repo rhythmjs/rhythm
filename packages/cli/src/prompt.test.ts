@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { RhythmCli } from "./rhythm-cli";
 import { createPrompt, withPrompt, type RhythmPromptIO } from "./prompt";
 import { toCliHandler } from "./run";
+import { log } from "./output";
 
 function fakeIO(answers: string[]): { io: RhythmPromptIO; output: () => string } {
   const queue = [...answers];
@@ -132,7 +133,7 @@ test("withPrompt() provides a prompt and closes its IO afterwards", async () => 
         close: () => void (closed = true),
       })),
     )
-    .cmd("hi", async (ctx) => ctx.log(await ctx.prompt.text("name?")));
+    .cmd("hi", async (ctx) => log(ctx, await ctx.prompt.text("name?")));
   expect(await toCliHandler(cli, io)(["hi"])).toBe(0);
   expect(out.join("")).toBe("ada\n");
   expect(closed).toBe(true);

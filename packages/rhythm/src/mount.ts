@@ -18,11 +18,13 @@ export function mount(plugin: Mountable, condition?: (ctx: any) => boolean): unk
     } catch (cause) {
       return Promise.reject(cause);
     }
+    let result: unknown;
     try {
-      return handler(ctx).then(() => next(), wrap);
+      result = handler(ctx);
     } catch (cause) {
       return Promise.reject(wrapFailure("mounted", plugin, cause));
     }
+    return result instanceof Promise ? result.then(() => next(), wrap) : next();
   };
   return withSource(middleware, plugin);
 }

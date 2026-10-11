@@ -3,6 +3,7 @@ import {
   Pipeline,
   compose,
   type ExtensionMiddleware,
+  type MaybePromise,
   type Middleware,
   type Next,
   type PipelineOptions,
@@ -25,7 +26,7 @@ export type RouteHandler<T extends object, P extends string> = (
 
 export type RouteHandlers<T extends object, P extends string> = [RouteHandler<T, P>, ...RouteHandler<T, P>[]];
 
-type Route<T extends object> = (ctx: RouterContext<T>) => Promise<void>;
+type Route<T extends object> = (ctx: RouterContext<T>) => MaybePromise<void>;
 
 function decodeParams(params: Record<string, string> | undefined) {
   const decoded: Record<string, string> = {};
@@ -112,9 +113,10 @@ export class RhythmRouter<I extends object = {}, D extends object = {}> extends 
       const ctx = input as RouterContext<I & D>;
       try {
         const match = this.#match(ctx);
-        if (!match) return Promise.resolve(ctx);
+        if (!match) return ctx;
         Object.assign(ctx, { params: match.params });
-        return run(ctx as UseContext<I & D>, () => match.route(ctx)).then(() => ctx);
+        const result = run(ctx as UseContext<I & D>, () => match.route(ctx));
+        return result instanceof Promise ? result.then(() => ctx) : ctx;
       } catch (error) {
         return Promise.reject(error);
       }

@@ -19,11 +19,9 @@ export function include(plugin: Rhythm<any, any, any>, select?: (child: any) => 
       () => {},
       () => plugin.stop(),
     );
-    const done = plugin
-      .callback()(ctx)
-      .catch((cause: unknown) => {
-        throw wrapFailure("included", plugin, cause);
-      });
+    const done = new Promise<any>((resolve) => resolve(plugin.callback()(ctx))).catch((cause: unknown) => {
+      throw wrapFailure("included", plugin, cause);
+    });
     if (!select) return done;
     return done.then((child) => {
       Object.assign(ctx, select(child));

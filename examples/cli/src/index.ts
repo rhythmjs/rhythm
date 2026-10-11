@@ -1,59 +1,50 @@
-import { Rhythm } from "@rhythmjs/rhythm";
-import { createPrompt, toCliHandler } from "@rhythmjs/cli/run";
-import type { RhythmCliContext } from "@rhythmjs/cli/context";
-import type { RhythmPrompt } from "@rhythmjs/cli/prompt";
+import { Rhythm, mount } from "@rhythmjs/rhythm";
 import { RhythmCli } from "@rhythmjs/cli";
+import { withParsedArgv } from "@rhythmjs/cli/argv";
+import type { RhythmCliContext } from "@rhythmjs/cli/context";
+import { error, fail, log } from "@rhythmjs/cli/output";
+import { withPrompt } from "@rhythmjs/cli/prompt";
+import { toCliHandler } from "@rhythmjs/cli/run";
 
 const remotes: Record<string, string> = {};
 
-const remoteCli = new RhythmCli({ prefix: "remote" })
-  .use(
-    async (ctx, next) => {
-      if (ctx.flags.force !== true) return void ctx.response.exit(1).printError("pass --force to remove a remote");
-      await next();
+const remoteCli = new RhythmCli<RhythmCliContext & { flags: Record<string, string | boolean> }>({ name: "remote" })
+  .cmd("remote add :name :url", (ctx) => {
+    remotes[ctx.params.name] = ctx.params.url;
+    log(ctx, `added remote "${ctx.params.name}" -> ${ctx.params.url}`);
+  })
+  .cmd(
+    "remote remove :name",
+    (ctx, next) => {
+      if (ctx.flags.force !== true) return fail(ctx, "pass --force to remove a remote");
+      return next();
     },
-    (ctx) => ctx.argv[1] === "remove",
+    (ctx) => {
+      delete remotes[ctx.params.name];
+      log(ctx, `removed remote "${ctx.params.name}"`);
+    },
   )
-  .command("add :name :url", (ctx) => {
-    remotes[ctx.args.name] = ctx.args.url;
-    ctx.response.print(`added remote "${ctx.args.name}" -> ${ctx.args.url}`);
-  })
-  .command("remove :name", (ctx) => {
-    delete remotes[ctx.args.name];
-    ctx.response.print(`removed remote "${ctx.args.name}"`);
-  })
-  .command("list", (ctx) => {
+  .cmd("remote list", (ctx) => {
     const lines = Object.entries(remotes).map(([name, url]) => `${name}\t${url}`);
-    ctx.response.print(lines.length ? lines.join("\n") : "(no remotes)");
+    log(ctx, lines.length ? lines.join("\n") : "(no remotes)");
   });
 
-const rootCli = new RhythmCli<RhythmCliContext & { prompt: RhythmPrompt }>()
-  .command("init", async (ctx) => {
-    const name = await ctx.prompt.text("Project name?", { default: "my-app" });
-    const useTypeScript = await ctx.prompt.confirm("Use TypeScript?", { default: true });
-    const packageManager = await ctx.prompt.select("Package manager?", ["npm", "pnpm", "bun"] as const, {
-      allowCustom: true,
-    });
-    ctx.response.print(`Created "${name}" (${useTypeScript ? "TypeScript" : "JavaScript"}, ${packageManager})`);
+const rootCli = new RhythmCli({ name: "root" }).use(withPrompt()).cmd("init", async (ctx) => {
+  const name = await ctx.prompt.text("Project name?", { default: "my-app" });
+  const useTypeScript = await ctx.prompt.confirm("Use TypeScript?", { default: true });
+  const packageManager = await ctx.prompt.select("Package manager?", ["npm", "pnpm", "bun"] as const, {
+    allowCustom: true,
+  });
+  log(ctx, `Created "${name}" (${useTypeScript ? "TypeScript" : "JavaScript"}, ${packageManager})`);
+});
+
+const app = new Rhythm<{}, RhythmCliContext>({ name: "app" })
+  .use(withParsedArgv())
+  .use(async (ctx, next) => {
+    if (ctx.flags.verbose === true) error(ctx, `[cli] argv: ${ctx.argv.join(" ")}`);
+    await next();
   })
-  .use(remoteCli.middleware());
-
-const { prompt, close } = createPrompt();
-
-const app = new Rhythm<RhythmCliContext, { prompt: RhythmPrompt }>({ name: "app" })
-  .use(
-    async (ctx, next) => {
-      console.error(`[cli] argv: ${ctx.argv.join(" ")}`);
-      await next();
-    },
-    (ctx) => ctx.flags.verbose === true,
-  )
-  .use(rootCli.middleware())
-  .use((ctx) => {
-    ctx.response.exit(1).printError(`Unknown command: ${ctx.argv.join(" ") || "(none)"}`);
-  });
-
-app.context.prompt = prompt;
+  .use(mount(rootCli))
+  .use(mount(remoteCli));
 
 process.exitCode = await toCliHandler(app)(process.argv.slice(2));
-close();

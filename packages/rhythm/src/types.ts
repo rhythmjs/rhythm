@@ -1,6 +1,8 @@
 import type { Rhythm } from "./rhythm";
 
-export type Next = () => Promise<void>;
+export type MaybePromise<T> = T | Promise<T>;
+
+export type Next = () => MaybePromise<void>;
 
 export type Middleware<T> = (ctx: T, next: Next) => unknown | Promise<unknown>;
 
@@ -34,11 +36,11 @@ export interface PipelineOptions {
 }
 
 export type Mountable<I extends object = any> = {
-  callback(): (...input: any[]) => Promise<unknown>;
+  callback(): (...input: any[]) => MaybePromise<unknown>;
   readonly options?: PipelineOptions;
   readonly "~input"?: I;
 };
 
 export type RhythmInputArgs<I extends object> = {} extends I ? [input?: I] : [input: I];
 
-export type RhythmHandler<I extends object, C extends object> = (...input: RhythmInputArgs<I>) => Promise<C>;
+export type RhythmHandler<I extends object, C extends object> = (...input: RhythmInputArgs<I>) => MaybePromise<C>;

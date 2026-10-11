@@ -89,8 +89,10 @@ export class Rhythm<S extends object = {}, I extends object = {}, D extends obje
     const fn = this.chain();
     const run = (input?: I) => {
       try {
-        const ctx = Object.assign({}, this.#ctx, input) as S & I & D;
-        return fn(ctx).then(() => ctx);
+        const ctx = Object.create(this.#ctx) as S & I & D;
+        if (input) for (const key in input) if (key !== "__proto__") (ctx as any)[key] = (input as any)[key];
+        const result = fn(ctx);
+        return result instanceof Promise ? result.then(() => ctx) : ctx;
       } catch (error) {
         return Promise.reject(error);
       }

@@ -3,6 +3,7 @@ import {
   Pipeline,
   compose,
   type ExtensionMiddleware,
+  type MaybePromise,
   type Middleware,
   type Next,
   type PipelineOptions,
@@ -51,7 +52,7 @@ export type CommandHandler<T extends object, C extends string> = (
 export type CommandHandlers<T extends object, C extends string> = [CommandHandler<T, C>, ...CommandHandler<T, C>[]];
 
 type Route<T extends object> = {
-  run: (ctx: CliContext<T>) => Promise<void>;
+  run: (ctx: CliContext<T>) => MaybePromise<void>;
   catchAll: string | undefined;
 };
 

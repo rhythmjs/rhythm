@@ -4,6 +4,7 @@ import { Pipeline, Rhythm, decorate, derive, mount } from "@rhythmjs/rhythm";
 import { RhythmCli } from "./rhythm-cli";
 import { createCliContext } from "./context";
 import { toCliHandler } from "./run";
+import { error, fail, log } from "./output";
 
 function harness() {
   const out: string[] = [];
@@ -18,7 +19,7 @@ function harness() {
   };
 }
 
-async function run(app: { callback(): (ctx: any) => Promise<unknown> }, argv: string[]) {
+async function run(app: { callback(): (ctx: any) => unknown }, argv: string[]) {
   const h = harness();
   const code = await toCliHandler(app, h.io)(argv);
   return { code, stdout: h.stdout(), stderr: h.stderr() };
@@ -252,7 +253,7 @@ test("a command middleware can stop the chain with fail()", async () => {
   const calls: string[] = [];
   const cli = new RhythmCli().cmd(
     "deploy",
-    (ctx) => ctx.fail("not logged in", 3),
+    (ctx) => fail(ctx, "not logged in", 3),
     () => void calls.push("deployed"),
   );
 
@@ -301,7 +302,7 @@ test("use middleware wraps every command and can read the matched params", async
 
 test("a use middleware that skips next() blocks the command", async () => {
   const calls: string[] = [];
-  const cli = new RhythmCli().use((ctx) => ctx.fail("blocked", 4)).cmd("serve", () => void calls.push("serve"));
+  const cli = new RhythmCli().use((ctx) => fail(ctx, "blocked", 4)).cmd("serve", () => void calls.push("serve"));
 
   const result = await run(cli, ["serve"]);
 
@@ -340,10 +341,10 @@ test("an unmatched command is reported by the adapter with exit code 2", async (
 test("context helpers: log, error, fail and exitCode", async () => {
   const cli = new RhythmCli()
     .cmd("say", (ctx) => {
-      ctx.log("hello", { a: 1 }, 42);
-      ctx.error("careful");
+      log(ctx, "hello", { a: 1 }, 42);
+      error(ctx, "careful");
     })
-    .cmd("boom", (ctx) => ctx.fail("it broke"))
+    .cmd("boom", (ctx) => fail(ctx, "it broke"))
     .cmd("code", (ctx) => {
       ctx.exitCode = 7;
     });
@@ -377,7 +378,7 @@ test("an error-boundary middleware can handle failures itself", async () => {
       try {
         await next();
       } catch (error) {
-        ctx.fail(`handled: ${(error as Error).message}`, 9);
+        fail(ctx, `handled: ${(error as Error).message}`, 9);
       }
     })
     .cmd("boom", () => {
@@ -424,7 +425,7 @@ test("help lives in a middleware too", async () => {
   const cli = new RhythmCli()
     .use((ctx, next) => {
       if (ctx.argv.includes("--help")) {
-        ctx.log(`usage: rhythm ${ctx.argv[0]}`);
+        log(ctx, `usage: rhythm ${ctx.argv[0]}`);
         return;
       }
       return next();
@@ -441,8 +442,8 @@ test("help lives in a middleware too", async () => {
 
 test("a cli can be mounted inside a Rhythm app", async () => {
   const cli = new RhythmCli().cmd("ping", (ctx) => {
-    ctx.log("pong");
-    ctx.fail("nope", 5);
+    log(ctx, "pong");
+    fail(ctx, "nope", 5);
   });
   const app = new Rhythm().register(decorate(() => ({ appName: "wrapped" }))).use(mount(cli));
 
@@ -545,8 +546,8 @@ test("createCliContext writes through the injected streams", () => {
   const h = harness();
   const ctx = createCliContext(["a"], h.io);
 
-  ctx.log("out");
-  ctx.error("err");
+  log(ctx, "out");
+  error(ctx, "err");
 
   expect(ctx.argv).toEqual(["a"]);
   expect(h.stdout()).toBe("out\n");

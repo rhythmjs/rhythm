@@ -1,6 +1,6 @@
 import { compose } from "./compose";
 import { sourceOf } from "./source";
-import type { Middleware, Next, PipelineOptions } from "./types";
+import type { MaybePromise, Middleware, Next, PipelineOptions } from "./types";
 
 export abstract class Pipeline<C> {
   #middleware: Middleware<C>[] = [];
@@ -27,7 +27,7 @@ export abstract class Pipeline<C> {
     return this;
   }
 
-  abstract callback(): (...input: any[]) => Promise<unknown>;
+  abstract callback(): (...input: any[]) => MaybePromise<unknown>;
 
   protected adopt(source: object | undefined): void {
     if (!source) return;
@@ -35,7 +35,7 @@ export abstract class Pipeline<C> {
     this.#sources.push(source);
   }
 
-  protected chain(): (ctx: C, next?: Next) => Promise<void> {
+  protected chain(): (ctx: C, next?: Next) => MaybePromise<void> {
     return compose([...this.#middleware]);
   }
 }

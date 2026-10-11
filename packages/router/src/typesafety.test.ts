@@ -3,6 +3,7 @@ import { Rhythm, decorate, derive, mount } from "@rhythmjs/rhythm";
 import type { RhythmHttpContext } from "./context";
 import { toFetchHandler } from "./fetch";
 import { RhythmRouter } from "./rhythm-router";
+import { error, json, redirect, text } from "./response";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 const assertType = <_T extends true>() => {};
@@ -35,12 +36,12 @@ test("the http context is typed and unknown fields are errors", () => {
   new RhythmRouter().get("/", (ctx) => {
     const request: Request = ctx.request;
     void request;
-    ctx.json({ ok: true });
-    ctx.text("x", 200);
-    ctx.error(404);
-    ctx.redirect("/x", 301);
+    json(ctx, { ok: true });
+    text(ctx, "x", 200);
+    error(ctx, 404);
+    redirect(ctx, "/x", 301);
     // @ts-expect-error status must be a number
-    ctx.json({}, "200");
+    json(ctx, {}, "200");
     // @ts-expect-error not on the context
     ctx.nope;
     // @ts-expect-error request is readonly
@@ -109,7 +110,7 @@ test("router derive can read the request context and params", () => {
 
 test("use() middleware sees the http context, not unknown fields", () => {
   new RhythmRouter().use((ctx, next) => {
-    ctx.text("x");
+    text(ctx, "x");
     // @ts-expect-error
     ctx.nope;
     return next();

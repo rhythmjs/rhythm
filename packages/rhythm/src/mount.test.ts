@@ -56,41 +56,25 @@ describe("failure context", () => {
   test("mount wraps a failing plugin with its type and name", async () => {
     const child = new Rhythm({ name: "billing", type: "service" }).use(boom);
     const app = new Rhythm().use(mount(child));
-    const error = await app
-      .callback()()
-      .catch((e) => e);
+    const error = await Promise.resolve(app.callback()()).catch((e) => e);
     expect(error.message).toBe('mounted service "billing" failed');
     expect(error.cause.message).toBe("boom");
   });
 
   test("defaults to module/anonymous", async () => {
     const app = new Rhythm().use(mount(new Rhythm().use(boom)));
-    expect(
-      (
-        await app
-          .callback()()
-          .catch((e) => e)
-      ).message,
-    ).toBe('mounted module "anonymous" failed');
+    expect((await Promise.resolve(app.callback()()).catch((e) => e)).message).toBe('mounted module "anonymous" failed');
   });
 
   test("downstream errors are not attributed to the mounted plugin", async () => {
     const app = new Rhythm().use(mount(new Rhythm())).use(boom);
-    expect(
-      (
-        await app
-          .callback()()
-          .catch((e) => e)
-      ).message,
-    ).toBe("boom");
+    expect((await Promise.resolve(app.callback()()).catch((e) => e)).message).toBe("boom");
   });
 
   test("include wraps a failing plugin startup", async () => {
     const child = new Rhythm({ name: "db" }).use(boom);
     const app = new Rhythm().register(include(child));
-    const error = await app
-      .callback()()
-      .catch((e) => e);
+    const error = await Promise.resolve(app.callback()()).catch((e) => e);
     expect(error.message).toBe('included module "db" failed');
     expect(error.cause.message).toBe("boom");
   });

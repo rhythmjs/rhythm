@@ -875,3 +875,113 @@ test("a register inside a deferred registration is queued after it, and cleanups
 
   expect(log).toEqual(["outer", "later", "inner", "stop-inner", "stop-outer"]);
 });
+
+test("startup state is inherited by each call, not copied", async () => {
+  const app = new Rhythm().register(decorate(() => ({ db: "pg" })));
+  const ctx: any = await app.callback()();
+
+  expect(ctx.db).toBe("pg");
+  expect("db" in ctx).toBe(true);
+  expect(Object.keys(ctx)).toEqual([]);
+});
+
+test("writing a startup key in one call shadows it for that call only", async () => {
+  const app = new Rhythm().register(decorate(() => ({ mode: "live" }))).use((ctx: any) => {
+    ctx.mode = ctx.mode === "live" ? "shadowed" : "leaked";
+  });
+  const handler = app.callback();
+
+  expect(((await handler()) as any).mode).toBe("shadowed");
+  expect(((await handler()) as any).mode).toBe("shadowed");
+});
+
+test("input fields win over startup state", async () => {
+  const app: any = new Rhythm().register(decorate(() => ({ tag: "startup" })));
+  const ctx = await app.callback()({ tag: "input" });
+
+  expect(ctx.tag).toBe("input");
+});
+
+test("fields registered later are visible to later calls", async () => {
+  const app = new Rhythm();
+  const handler = app.callback();
+  app.register(decorate(() => ({ late: 1 })));
+
+  expect(((await handler()) as any).late).toBe(1);
+});
+
+test("a mounted module sees the parent's startup state", async () => {
+  let seen: unknown;
+  const child = new Rhythm().use((ctx: any) => void (seen = ctx.db));
+  const parent = new Rhythm().register(decorate(() => ({ db: "pg" }))).use(mount(child));
+
+  await parent.callback()();
+
+  expect(seen).toBe("pg");
+});
+
+test("a __proto__ key in the input is a plain field, not the prototype", async () => {
+  const input = JSON.parse('{"__proto__": {"polluted": true}, "ok": 1}');
+  const ctx: any = await (new Rhythm().callback() as (input: object) => Promise<object>)(input);
+
+  expect(ctx.polluted).toBeUndefined();
+  expect(ctx.ok).toBe(1);
+});
+
+test("a fully synchronous chain returns the context without a promise", () => {
+  const app = new Rhythm().use((ctx: any, next) => {
+    ctx.seen = true;
+    return next();
+  });
+
+  const result = app.callback()() as any;
+
+  expect(result instanceof Promise).toBe(false);
+  expect(result.seen).toBe(true);
+});
+
+test("an async middleware makes the result a promise", async () => {
+  const app = new Rhythm().use(async (ctx: any, next) => {
+    await next();
+    ctx.done = true;
+  });
+
+  const result = app.callback()();
+
+  expect(result instanceof Promise).toBe(true);
+  expect(((await result) as any).done).toBe(true);
+});
+
+test("a middleware that throws rejects instead of throwing", async () => {
+  const app = new Rhythm().use(() => {
+    throw new Error("sync boom");
+  });
+
+  let returned: unknown;
+  expect(() => {
+    returned = app.callback()();
+  }).not.toThrow();
+  await expect(returned).rejects.toThrow("sync boom");
+});
+
+test("a synchronous mounted plugin keeps the chain synchronous and still runs next", () => {
+  const order: string[] = [];
+  const child = new Rhythm().use(() => void order.push("child"));
+  const app = new Rhythm().use(mount(child)).use(() => void order.push("after"));
+
+  const result = app.callback()();
+
+  expect(result instanceof Promise).toBe(false);
+  expect(order).toEqual(["child", "after"]);
+});
+
+test("a thenable returned by a middleware is still awaited", async () => {
+  const order: string[] = [];
+  const app = new Rhythm()
+    .use(() => ({ then: (resolve: () => void) => setTimeout(() => (order.push("thenable"), resolve()), 1) }))
+    .use(() => void order.push("next"));
+
+  await app.callback()();
+
+  expect(order).toContain("thenable");
+});

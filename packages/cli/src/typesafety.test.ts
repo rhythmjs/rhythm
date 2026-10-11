@@ -5,6 +5,7 @@ import type { RhythmCliContext } from "./context";
 import { withPrompt, type RhythmPrompt } from "./prompt";
 import { RhythmCli } from "./rhythm-cli";
 import { toCliHandler } from "./run";
+import { error, fail, log } from "./output";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 const assertType = <_T extends true>() => {};
@@ -38,11 +39,11 @@ test("command params are typed from the command string", () => {
 test("the cli context is typed and unknown fields are errors", () => {
   new RhythmCli().cmd("x", (ctx) => {
     assertType<Equal<typeof ctx.argv, string[]>>();
-    ctx.log("a", 1);
-    ctx.error("e");
-    ctx.fail("bad", 2);
+    log(ctx, "a", 1);
+    error(ctx, "e");
+    fail(ctx, "bad", 2);
     // @ts-expect-error code must be a number
-    ctx.fail("bad", "2");
+    fail(ctx, "bad", "2");
     // @ts-expect-error not on the context
     ctx.nope;
     // @ts-expect-error argv is readonly

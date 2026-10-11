@@ -2,11 +2,12 @@ import { test, expect } from "bun:test";
 import { Pipeline, Rhythm, decorate, derive, mount } from "@rhythmjs/rhythm";
 import { RhythmRouter } from "./rhythm-router";
 import { createHttpContext, type RhythmHttpContext } from "./context";
+import { error, json, text } from "./response";
 
 type Dyn = Record<string, any>;
 
 async function call(
-  router: { callback(): (ctx: any) => Promise<unknown> },
+  router: { callback(): (ctx: any) => unknown },
   method: string,
   path: string,
   extra: Record<string, any> = {},
@@ -19,11 +20,11 @@ async function call(
 
 test("each method helper matches only its own HTTP method", async () => {
   const router = new RhythmRouter()
-    .get("/thing", (ctx) => ctx.text("get"))
-    .post("/thing", (ctx) => ctx.text("post"))
-    .put("/thing", (ctx) => ctx.text("put"))
-    .patch("/thing", (ctx) => ctx.text("patch"))
-    .delete("/thing", (ctx) => ctx.text("delete"));
+    .get("/thing", (ctx) => text(ctx, "get"))
+    .post("/thing", (ctx) => text(ctx, "post"))
+    .put("/thing", (ctx) => text(ctx, "put"))
+    .patch("/thing", (ctx) => text(ctx, "patch"))
+    .delete("/thing", (ctx) => text(ctx, "delete"));
 
   for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"]) {
     const ctx = await call(router, method, "/thing");
@@ -33,7 +34,7 @@ test("each method helper matches only its own HTTP method", async () => {
 
 test("an unknown method or path leaves the response untouched", async () => {
   const router = new RhythmRouter().get("/thing", (ctx) => {
-    ctx.text("ok");
+    text(ctx, "ok");
   });
 
   const wrongMethod = await call(router, "POST", "/thing");
@@ -61,7 +62,7 @@ test("path params are parsed, decoded and typed", async () => {
 
 test("a malformed percent-encoded param does not match", async () => {
   const router = new RhythmRouter().get("/users/:id", (ctx) => {
-    ctx.text("ok");
+    text(ctx, "ok");
   });
 
   const ctx = await call(router, "GET", "/users/%E0%A4%A");
@@ -71,8 +72,8 @@ test("a malformed percent-encoded param does not match", async () => {
 
 test("trailing slashes are ignored and segment counts must match", async () => {
   const router = new RhythmRouter()
-    .get("/users", (ctx) => ctx.text("list"))
-    .get("/users/:id", (ctx) => ctx.text("one"));
+    .get("/users", (ctx) => text(ctx, "list"))
+    .get("/users/:id", (ctx) => text(ctx, "one"));
 
   const withSlash = await call(router, "GET", "/users/");
   const tooLong = await call(router, "GET", "/users/1/extra");
@@ -84,7 +85,7 @@ test("trailing slashes are ignored and segment counts must match", async () => {
 test("handlers respond through the ctx helpers and real response values", async () => {
   const router = new RhythmRouter().post("/things", (ctx) => {
     ctx.response.headers.set("x-thing-id", "7");
-    ctx.json({ id: 7 }, 201);
+    json(ctx, { id: 7 }, 201);
   });
 
   const ctx = await call(router, "POST", "/things");
@@ -106,7 +107,7 @@ test("a handler's return value is ignored", async () => {
 test("async handlers are awaited", async () => {
   const router = new RhythmRouter().get("/slow", async (ctx) => {
     await Bun.sleep(10);
-    ctx.json({ done: true });
+    json(ctx, { done: true });
   });
 
   const ctx = await call(router, "GET", "/slow");
@@ -180,13 +181,13 @@ test("with several routers mounted, only the one that owns the route runs its mi
       calls.push("users middleware");
       await next();
     })
-    .get("/users", (ctx) => ctx.text("users"));
+    .get("/users", (ctx) => text(ctx, "users"));
   const posts = new RhythmRouter()
     .use(async (_ctx, next) => {
       calls.push("posts middleware");
       await next();
     })
-    .get("/posts", (ctx) => ctx.text("posts"));
+    .get("/posts", (ctx) => text(ctx, "posts"));
 
   const app = new Rhythm().use(mount(users)).use(mount(posts));
 
@@ -206,9 +207,9 @@ test("with several routers mounted, only the one that owns the route runs its mi
 test("use middleware that skips next() stops route dispatch", async () => {
   const router = new RhythmRouter()
     .use((ctx) => {
-      ctx.error(403, "blocked");
+      error(ctx, 403, "blocked");
     })
-    .get("/x", (ctx) => ctx.text("never"));
+    .get("/x", (ctx) => text(ctx, "never"));
 
   const ctx = await call(router, "GET", "/x");
 
@@ -232,7 +233,7 @@ test("route handlers form a middleware chain", async () => {
     },
     (ctx) => {
       calls.push("last");
-      ctx.json({ seen: ctx.seen });
+      json(ctx, { seen: ctx.seen });
     },
   );
 
@@ -249,14 +250,14 @@ test("a route middleware can short-circuit by not calling next()", async () => {
     (ctx, next) => {
       calls.push("auth");
       if (!ctx.request.headers.has("authorization")) {
-        ctx.error(401);
+        error(ctx, 401);
         return;
       }
       return next();
     },
     (ctx) => {
       calls.push("handler");
-      ctx.text("secret");
+      text(ctx, "secret");
     },
   );
 
@@ -269,13 +270,13 @@ test("a route middleware can short-circuit by not calling next()", async () => {
 
 test("route middleware only runs for its own route", async () => {
   const calls: string[] = [];
-  const guard = async (_ctx: unknown, next: () => Promise<void>) => {
+  const guard = async (_ctx: unknown, next: () => void | Promise<void>) => {
     calls.push("guard");
     await next();
   };
   const router = new RhythmRouter()
-    .get("/guarded", guard, (ctx) => ctx.text("guarded"))
-    .get("/open", (ctx) => ctx.text("open"));
+    .get("/guarded", guard, (ctx) => text(ctx, "guarded"))
+    .get("/open", (ctx) => text(ctx, "open"));
 
   await call(router, "GET", "/open");
   await call(router, "GET", "/guarded");
@@ -288,10 +289,10 @@ test("rou3 patterns: optional params, wildcards and catch-alls", async () => {
     .get("/posts/:id/:tab?", (ctx) => {
       const id: string = ctx.params.id;
       const tab: string | undefined = ctx.params.tab;
-      ctx.json({ id, tab });
+      json(ctx, { id, tab });
     })
     .get("/files/**:path", (ctx) => {
-      ctx.json({ path: ctx.params.path });
+      json(ctx, { path: ctx.params.path });
     });
 
   const withTab = await call(router, "GET", "/posts/7/comments");
@@ -306,7 +307,7 @@ test("rou3 patterns: optional params, wildcards and catch-alls", async () => {
 test("use with derive widens the ctx type for later routes", async () => {
   const router = new RhythmRouter().use(derive(() => ({ user: "ada" }))).get("/me", (ctx) => {
     const user: string = ctx.user;
-    ctx.json({ user });
+    json(ctx, { user });
   });
 
   const ctx = await call(router, "GET", "/me");
@@ -316,7 +317,7 @@ test("use with derive widens the ctx type for later routes", async () => {
 
 test("a mounted router sets the response on the parent's ctx and sees its values", async () => {
   const api = new RhythmRouter<{ appName: string }>().get("/hello", (ctx) => {
-    ctx.text(`hello from ${ctx.appName}`);
+    text(ctx, `hello from ${ctx.appName}`);
   });
 
   const app = new Rhythm().register(decorate(() => ({ appName: "rhythm" }))).use(mount(api));
@@ -328,12 +329,12 @@ test("a mounted router sets the response on the parent's ctx and sees its values
 
 test("an unmatched mounted router falls through to the parent's later middleware", async () => {
   const api = new RhythmRouter().get("/hello", (ctx) => {
-    ctx.text("api");
+    text(ctx, "api");
   });
 
   const app = new Rhythm<{}, RhythmHttpContext>().use(mount(api)).use(async (ctx, next) => {
     if (ctx.response.body === null) {
-      ctx.error(404, "fallback");
+      error(ctx, 404, "fallback");
     }
     await next();
   });
@@ -347,7 +348,7 @@ test("an unmatched mounted router falls through to the parent's later middleware
 
 test("mount can scope a router with its condition", async () => {
   const api = new RhythmRouter().get("/api/ping", (ctx) => {
-    ctx.text("pong");
+    text(ctx, "pong");
   });
 
   const app = new Rhythm<{}, RhythmHttpContext>().use(
@@ -365,7 +366,7 @@ test("mount can scope a router with its condition", async () => {
 
 test("a router can be mounted from a catch-all route of another router", async () => {
   const inner = new RhythmRouter().get("/api/deep", (ctx) => {
-    ctx.text("inner");
+    text(ctx, "inner");
   });
   const outer = new RhythmRouter().get("/api/**", mount(inner));
 
@@ -376,7 +377,7 @@ test("a router can be mounted from a catch-all route of another router", async (
 
 test("mounting a router with use() on a router without routes does nothing", async () => {
   const inner = new RhythmRouter().get("/deep", (ctx) => {
-    ctx.text("inner");
+    text(ctx, "inner");
   });
   const outer = new RhythmRouter().use(mount(inner));
 
@@ -391,7 +392,7 @@ test("derive as the first route handler widens the ctx type for the handlers aft
     derive(() => ({ user: "ada" })),
     (ctx) => {
       const user: string = ctx.user;
-      ctx.json({ user });
+      json(ctx, { user });
     },
   );
 
@@ -422,7 +423,7 @@ test("a route derive can read params and the request", async () => {
     })),
     (ctx) => {
       const id: number = ctx.id;
-      ctx.json({ id, method: ctx.method });
+      json(ctx, { id, method: ctx.method });
     },
   );
 
@@ -437,7 +438,7 @@ test("an async route derive is awaited and typed by its resolved value", async (
     derive(async () => ({ token: await Promise.resolve("abc") })),
     (ctx) => {
       const token: string = ctx.token;
-      ctx.text(token);
+      text(ctx, token);
     },
   );
 

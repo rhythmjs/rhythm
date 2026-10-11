@@ -1,35 +1,36 @@
 import { join } from "node:path";
-import { Rhythm } from "@rhythmjs/rhythm";
-import type { RhythmHttpContext } from "@rhythmjs/router/context";
+import { Rhythm, decorate, mount } from "@rhythmjs/rhythm";
+import { type RhythmHttpContext } from "@rhythmjs/router/context";
+import { error } from "@rhythmjs/router/response";
 import { errorToResponse, toFetchHandler } from "@rhythmjs/router/fetch";
-import { matches } from "@rhythmjs/router/match";
-import { createDatabase, type Database } from "./database";
+import { pathIs } from "@rhythmjs/router/path";
+import { createDatabase } from "./database";
 import { notesModule } from "./notes/notes.module";
 import { usersModule } from "./users/users.module";
 
-const app = new Rhythm<RhythmHttpContext, { db: Database; logger: { info(msg: string): void } }>({ name: "app" })
-  .use(
-    async (ctx, next) => {
-      const startedAt = Date.now();
-      await next();
-      ctx.logger.info(
-        `${ctx.request.method} ${new URL(ctx.request.url).pathname} ${ctx.response.status} in ${Date.now() - startedAt}ms`,
-      );
-    },
-    (ctx) => new URL(ctx.request.url).pathname.startsWith("/api"),
+const isApi = pathIs("/api/**");
+
+const app = new Rhythm<{}, RhythmHttpContext>({ name: "app" })
+  .register(
+    decorate(() => ({
+      db: createDatabase(),
+      logger: { info: (msg: string) => console.log(`[app] ${msg}`) },
+    })),
   )
   .use(async (ctx, next) => {
+    if (!isApi(ctx)) return next();
+    const startedAt = Date.now();
     await next();
     ctx.response.headers.set("cache-control", "no-store");
-  }, matches("/api/**"))
-  .register(usersModule)
-  .register(notesModule)
-  .use(async (ctx) => {
-    ctx.error(404);
+    ctx.logger.info(
+      `${ctx.request.method} ${new URL(ctx.request.url).pathname} ${ctx.response.status} in ${Date.now() - startedAt}ms`,
+    );
+  })
+  .use(mount(usersModule))
+  .use(mount(notesModule))
+  .use((ctx) => {
+    if (ctx.response.status === 200 && ctx.response.body === null) error(ctx, 404);
   });
-
-app.context.db = createDatabase();
-app.context.logger = { info: (msg) => console.log(`[app] ${msg}`) };
 
 const handler = toFetchHandler(app);
 const publicDir = join(import.meta.dirname, "..", "public");

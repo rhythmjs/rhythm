@@ -1,31 +1,39 @@
 import { Rhythm, type Mountable } from "@rhythmjs/rhythm";
-import { RhythmResponse, STATUS_TEXT, createHttpContext, toResponse, type RhythmHttpContext } from "./context";
+import { RhythmResponse, createHttpContext, toResponse, type RhythmHttpContext } from "./context";
+import { STATUS_TEXT, error } from "./response";
 
 function isUntouched(response: RhythmResponse): boolean {
   return (
     response.status === 200 &&
-    response.statusText === undefined &&
+    response.statusText === "" &&
     response.body === null &&
-    [...response.headers].length === 0
+    response.headers.entries().next().done === true
   );
 }
 
 export function toFetchHandler<I extends object = any>(
   app: Mountable<I> & (RhythmHttpContext extends I ? unknown : never),
-): <WebSocketData>(request: Request, server?: Bun.Server<WebSocketData>) => Promise<Response> {
+): <WebSocketData>(request: Request, server?: Bun.Server<WebSocketData>) => Response | Promise<Response> {
   const run = app.callback();
-  return async (request, server) => {
-    const base = createHttpContext(request, server);
-    const result = (await run(base)) as Partial<RhythmHttpContext> | undefined;
-    const response = result?.response ?? base.response;
+
+  const finish = (base: RhythmHttpContext, result: unknown): Response => {
+    const response = (result as Partial<RhythmHttpContext> | undefined)?.response ?? base.response;
     if (isUntouched(response)) {
       const fallback = new RhythmResponse();
-      fallback.status = 404;
-      fallback.headers.set("content-type", "text/plain; charset=utf-8");
-      fallback.body = STATUS_TEXT[404]!;
+      error({ response: fallback }, 404);
       return toResponse(fallback);
     }
     return toResponse(response);
+  };
+
+  return (request, server) => {
+    const base = createHttpContext(request, server);
+    try {
+      const result = run(base);
+      return result instanceof Promise ? result.then((resolved) => finish(base, resolved)) : finish(base, result);
+    } catch (error) {
+      return Promise.reject(error);
+    }
   };
 }
 

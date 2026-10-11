@@ -119,7 +119,7 @@ const app = new Rhythm().register(include(database, (child) => ({ db: child.db }
 - `new Rhythm<S, I, D>(options?)`: startup, input and derived context types (all inferred as you chain, only `I` is usually written by hand); `options.name` / `options.type` label failures.
 - `.register(callback, cleanup?)`: startup step; returns the app with its type extended when given `decorate()`/`include()`.
 - `.use(middleware)`: request step; `derive()` extends the type.
-- `.callback()`: returns the reusable `(input?) => Promise<ctx>` handler (input required when `I` has required fields). Built from the middleware registered so far.
+- `.callback()`: returns the reusable `(input?) => ctx | Promise<ctx>` handler (input required when `I` has required fields). Built from the middleware registered so far. The result is the context itself when every middleware is synchronous and a promise as soon as one is async or startup is still pending, so `await` it; a failure always rejects, it never throws.
 - `.stop()` / `[Symbol.asyncDispose]()`: run the cleanups in reverse order.
 - `.sources` / `.parent` / `.options`: introspection, available on every `Pipeline`.
 - `decorate(fn)`, `derive(fn)`, `mount(plugin, condition?)`, `include(module, pick?)`: the composables above.

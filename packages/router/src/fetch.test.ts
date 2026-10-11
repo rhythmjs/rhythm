@@ -3,10 +3,11 @@ import { Rhythm, mount } from "@rhythmjs/rhythm";
 import type { RhythmHttpContext } from "./context";
 import { RhythmRouter } from "./rhythm-router";
 import { errorToResponse, fromFetch, toFetchHandler } from "./fetch";
+import { json, text } from "./response";
 
 test("toFetchHandler turns a request into a Response through the app", async () => {
   const app = new Rhythm<{}, RhythmHttpContext>().use(async (ctx, next) => {
-    ctx.text(`you asked for ${new URL(ctx.request.url).pathname}`);
+    text(ctx, `you asked for ${new URL(ctx.request.url).pathname}`);
     await next();
   });
 
@@ -18,7 +19,7 @@ test("toFetchHandler turns a request into a Response through the app", async () 
 
 test("toFetchHandler gives each request its own response", async () => {
   const app = new Rhythm<{}, RhythmHttpContext>().use((ctx) => {
-    ctx.text(new URL(ctx.request.url).pathname);
+    text(ctx, new URL(ctx.request.url).pathname);
   });
 
   const fetch = toFetchHandler(app);
@@ -62,7 +63,7 @@ test("toFetchHandler keeps a response that only set a header", async () => {
 
 test("toFetchHandler works with a router, directly or mounted", async () => {
   const router = new RhythmRouter().get("/users/:id", (ctx) => {
-    ctx.json({ id: ctx.params.id });
+    json(ctx, { id: ctx.params.id });
   });
 
   const direct = toFetchHandler(router);
@@ -111,7 +112,7 @@ test("errorToResponse finds the status through a wrapped cause chain", async () 
 test("toFetchHandler exposes the Bun server as ctx.server", async () => {
   const server = { requestIP: () => ({ address: "203.0.113.7" }) } as unknown as Bun.Server<undefined>;
   const app = new Rhythm<{}, RhythmHttpContext>().use((ctx) => {
-    ctx.text(ctx.server?.requestIP(ctx.request)?.address ?? "none");
+    text(ctx, ctx.server?.requestIP(ctx.request)?.address ?? "none");
   });
   const handler = toFetchHandler(app);
 
@@ -138,4 +139,33 @@ test("fromFetch writes a Web Response into the context, mounted with a condition
   expect(await hit.text()).toBe("created");
 
   expect((await handler(new Request("http://localhost/other"))).status).toBe(404);
+});
+
+test("toFetchHandler answers synchronously when nothing is async", () => {
+  const app = new Rhythm<{}, RhythmHttpContext>().use((ctx) => {
+    text(ctx, "sync");
+  });
+
+  const response = toFetchHandler(app)(new Request("http://localhost/"));
+
+  expect(response instanceof Response).toBe(true);
+});
+
+test("toFetchHandler rejects, never throws, when a handler throws synchronously", async () => {
+  const app = new Rhythm<{}, RhythmHttpContext>().use(() => {
+    throw new Error("sync boom");
+  });
+
+  let returned: unknown;
+  expect(() => {
+    returned = toFetchHandler(app)(new Request("http://localhost/"));
+  }).not.toThrow();
+  await expect(returned).rejects.toThrow("sync boom");
+});
+
+test("a router with only synchronous routes gives a synchronous response", () => {
+  const router = new RhythmRouter().get("/ping", (ctx) => text(ctx, "pong"));
+  const app = new Rhythm<{}, RhythmHttpContext>().use(mount(router));
+
+  expect(toFetchHandler(app)(new Request("http://localhost/ping")) instanceof Response).toBe(true);
 });
