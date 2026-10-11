@@ -1,6 +1,6 @@
 {
   "name": "@rhythmjs/cli",
-  "version": "0.0.23",
+  "version": "0.0.24",
   "description": "Command-line routing for Rhythm: RhythmCli commands, argv parsing, prompts and a Bun runner.",
   "homepage": "https://rhythm.js.org/cli",
   "license": "ISC",
@@ -65,6 +65,6 @@
     "bun": ">=1.2.0"
   },
   "peerDependencies": {
-    "@rhythmjs/rhythm": ">=0.0.23"
+    "@rhythmjs/rhythm": ">=0.0.24"
   }
 }
